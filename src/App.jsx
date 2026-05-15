@@ -62,6 +62,256 @@ function useToast() {
   return { toasts, show };
 }
 
+
+// ============================================================
+// 密码安全工具（PBKDF2，WebCrypto 原生）
+// ============================================================
+async function hashPassword(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: enc.encode(salt), iterations: 200000, hash: "SHA-256" },
+    keyMaterial, 256
+  );
+  return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function genSalt() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ============================================================
+// 登录页
+// ============================================================
+function LoginPage({ onLogin }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showPwd, setShowPwd] = useState(false);
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    if (!username.trim() || !password.trim()) { setError("请输入账号和密码"); return; }
+    setLoading(true); setError("");
+    try {
+      const { data, error: dbErr } = await supabase
+        .from("admin_config")
+        .select("*")
+        .eq("key", "admin_credential")
+        .single();
+
+      if (dbErr || !data) {
+        // 首次使用：初始化默认账号密码
+        if (username === "admin" && password === "123456") {
+          const salt = genSalt();
+          const hash = await hashPassword("123456", salt);
+          await supabase.from("admin_config").upsert({
+            key: "admin_credential",
+            value: JSON.stringify({ username: "admin", hash, salt, must_change: true }),
+          });
+          sessionStorage.setItem("edu_auth", JSON.stringify({ username: "admin", loginAt: Date.now() }));
+          onLogin({ username: "admin", mustChange: true });
+          return;
+        }
+        setError("账号或密码错误");
+        return;
+      }
+
+      const cred = JSON.parse(data.value);
+      if (username !== cred.username) { setError("账号或密码错误"); return; }
+      const inputHash = await hashPassword(password, cred.salt);
+      if (inputHash !== cred.hash) { setError("账号或密码错误"); return; }
+
+      sessionStorage.setItem("edu_auth", JSON.stringify({ username: cred.username, loginAt: Date.now() }));
+      onLogin({ username: cred.username, mustChange: cred.must_change || false });
+    } catch (err) {
+      setError("登录失败，请检查数据库连接");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: "linear-gradient(135deg, #1e293b 0%, #1e3a5f 100%)",
+    }}>
+      <div style={{ width: 380, padding: "0 16px" }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>📚</div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "white", marginBottom: 4 }}>实训管理系统</h1>
+          <p style={{ fontSize: 13, color: "#94a3b8" }}>中职电商 · 课堂任务管理</p>
+        </div>
+        <div style={{ background: "white", borderRadius: 16, padding: 32, boxShadow: "0 24px 80px rgba(0,0,0,0.3)" }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 24, color: "#111827" }}>管理员登录</h2>
+          <form onSubmit={handleLogin}>
+            <div className="form-group">
+              <label className="form-label">账号</label>
+              <input className="form-input" placeholder="请输入账号"
+                value={username} onChange={e => { setUsername(e.target.value); setError(""); }}
+                autoComplete="username" autoFocus />
+            </div>
+            <div className="form-group">
+              <label className="form-label">密码</label>
+              <div style={{ position: "relative" }}>
+                <input className="form-input" type={showPwd ? "text" : "password"}
+                  placeholder="请输入密码" style={{ paddingRight: 40 }}
+                  value={password} onChange={e => { setPassword(e.target.value); setError(""); }}
+                  autoComplete="current-password" />
+                <button type="button" onClick={() => setShowPwd(v => !v)}
+                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", cursor: "pointer", color: "#6b7280", fontSize: 16, padding: 4 }}>
+                  {showPwd ? "🙈" : "👁"}
+                </button>
+              </div>
+            </div>
+            {error && (
+              <div style={{ background: "#fde8e8", border: "1px solid #f87171", borderRadius: 8,
+                padding: "10px 14px", fontSize: 13, color: "#b91c1c", marginBottom: 16 }}>
+                ⚠ {error}
+              </div>
+            )}
+            <button type="submit" className="btn btn-primary" style={{ width: "100%", justifyContent: "center", padding: "12px 0", fontSize: 14 }} disabled={loading}>
+              {loading ? <><span className="spinner" style={{ width: 16, height: 16, borderWidth: 2, marginRight: 8 }} />验证中...</> : "登 录"}
+            </button>
+          </form>
+          <p style={{ textAlign: "center", fontSize: 12, color: "#9ca3af", marginTop: 20 }}>
+            首次登录默认账号 admin / 123456，请登录后立即修改密码
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// 修改密码弹窗
+// ============================================================
+function ChangePwdModal({ username, mustChange, onClose, onSuccess }) {
+  const [oldPwd, setOldPwd] = useState("");
+  const [newPwd, setNewPwd] = useState("");
+  const [confirmPwd, setConfirmPwd] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [showOld, setShowOld] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+
+  const strengthInfo = (() => {
+    if (!newPwd) return { level: 0, label: "", color: "" };
+    let score = 0;
+    if (newPwd.length >= 8) score++;
+    if (newPwd.length >= 12) score++;
+    if (/[A-Z]/.test(newPwd)) score++;
+    if (/[0-9]/.test(newPwd)) score++;
+    if (/[^A-Za-z0-9]/.test(newPwd)) score++;
+    if (score <= 1) return { level: 1, label: "弱", color: "#e02424" };
+    if (score <= 3) return { level: 2, label: "中", color: "#c27803" };
+    return { level: 3, label: "强", color: "#057a55" };
+  })();
+
+  async function handleSave() {
+    setError("");
+    if (!oldPwd) { setError("请输入当前密码"); return; }
+    if (!newPwd) { setError("请输入新密码"); return; }
+    if (newPwd.length < 6) { setError("新密码至少6位"); return; }
+    if (newPwd !== confirmPwd) { setError("两次输入的新密码不一致"); return; }
+    if (newPwd === oldPwd) { setError("新密码不能与当前密码相同"); return; }
+
+    setSaving(true);
+    try {
+      const { data } = await supabase.from("admin_config").select("*").eq("key", "admin_credential").single();
+      if (!data) { setError("配置异常，请联系管理员"); return; }
+      const cred = JSON.parse(data.value);
+      const oldHash = await hashPassword(oldPwd, cred.salt);
+      if (oldHash !== cred.hash) { setError("当前密码错误"); return; }
+      const newSalt = genSalt();
+      const newHash = await hashPassword(newPwd, newSalt);
+      await supabase.from("admin_config").update({
+        value: JSON.stringify({ username: cred.username, hash: newHash, salt: newSalt, must_change: false }),
+      }).eq("key", "admin_credential");
+      onSuccess();
+    } catch {
+      setError("保存失败，请重试");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal title={mustChange ? "⚠ 首次登录，请立即修改密码" : "🔑 修改登录密码"} onClose={mustChange ? null : onClose}>
+      <div className="modal-body">
+        {mustChange && (
+          <div className="alert alert-warning" style={{ marginBottom: 16 }}>
+            您正在使用初始默认密码，为了账号安全请立即修改！
+          </div>
+        )}
+        <div className="form-group">
+          <label className="form-label">当前密码</label>
+          <div style={{ position: "relative" }}>
+            <input className="form-input" type={showOld ? "text" : "password"}
+              style={{ paddingRight: 40 }} placeholder="请输入当前密码"
+              value={oldPwd} onChange={e => { setOldPwd(e.target.value); setError(""); }} />
+            <button type="button" onClick={() => setShowOld(v => !v)}
+              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                background: "none", border: "none", cursor: "pointer", color: "#6b7280", fontSize: 16, padding: 4 }}>
+              {showOld ? "🙈" : "👁"}
+            </button>
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">新密码</label>
+          <div style={{ position: "relative" }}>
+            <input className="form-input" type={showNew ? "text" : "password"}
+              style={{ paddingRight: 40 }} placeholder="至少6位，建议包含字母+数字"
+              value={newPwd} onChange={e => { setNewPwd(e.target.value); setError(""); }} />
+            <button type="button" onClick={() => setShowNew(v => !v)}
+              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                background: "none", border: "none", cursor: "pointer", color: "#6b7280", fontSize: 16, padding: 4 }}>
+              {showNew ? "🙈" : "👁"}
+            </button>
+          </div>
+          {newPwd && (
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ flex: 1, height: 4, background: "#e5e7eb", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ width: `${(strengthInfo.level / 3) * 100}%`, height: "100%",
+                  background: strengthInfo.color, borderRadius: 2, transition: "all 0.3s" }} />
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 600, color: strengthInfo.color }}>
+                密码强度：{strengthInfo.label}
+              </span>
+            </div>
+          )}
+        </div>
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">确认新密码</label>
+          <input className="form-input" type="password" placeholder="再次输入新密码"
+            value={confirmPwd} onChange={e => { setConfirmPwd(e.target.value); setError(""); }} />
+          {confirmPwd && newPwd && (
+            <p style={{ fontSize: 11, marginTop: 4, color: confirmPwd === newPwd ? "#057a55" : "#e02424" }}>
+              {confirmPwd === newPwd ? "✓ 两次密码一致" : "✗ 两次密码不一致"}
+            </p>
+          )}
+        </div>
+        {error && (
+          <div style={{ background: "#fde8e8", border: "1px solid #f87171", borderRadius: 8,
+            padding: "10px 14px", fontSize: 13, color: "#b91c1c", marginTop: 16 }}>
+            ⚠ {error}
+          </div>
+        )}
+      </div>
+      <div className="modal-footer">
+        {!mustChange && <button className="btn btn-outline" onClick={onClose}>取消</button>}
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? "保存中..." : "确认修改密码"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 // ============================================================
 // 系数档位编辑器
 // ============================================================
@@ -1170,6 +1420,26 @@ export default function App() {
   const [dbError, setDbError] = useState(false);
   const { toasts, show: showToast } = useToast();
 
+  // ── 认证状态 ──
+  const [authUser, setAuthUser] = useState(() => {
+    try {
+      const s = sessionStorage.getItem("edu_auth");
+      return s ? JSON.parse(s) : null;
+    } catch { return null; }
+  });
+  const [showChangePwd, setShowChangePwd] = useState(false);
+  const [mustChange, setMustChange] = useState(false);
+
+  function handleLogin(info) {
+    setAuthUser({ username: info.username });
+    if (info.mustChange) { setMustChange(true); setShowChangePwd(true); }
+  }
+
+  function handleLogout() {
+    sessionStorage.removeItem("edu_auth");
+    setAuthUser(null);
+  }
+
   const fetchAll = useCallback(async () => {
     try {
       const [{ data: cls, error: e1 }, { data: tsk, error: e2 }, { data: sc, error: e3 }] = await Promise.all([
@@ -1234,6 +1504,14 @@ export default function App() {
     fetchAll();
   }
 
+  // 未登录时显示登录页
+  if (!authUser) return (
+    <>
+      <LoginPage onLogin={handleLogin} />
+      <ToastContainer toasts={toasts} />
+    </>
+  );
+
   if (loading) return (
     <div className="loading-screen">
       <div className="spinner" />
@@ -1295,8 +1573,20 @@ export default function App() {
       <main className="main">
         <div className="topbar">
           <h2 style={{ fontSize: 16, fontWeight: 600 }}>{pageTitle}</h2>
-          <div style={{ fontSize: 12, color: "#9ca3af" }}>
-            {classes.length}个班级 · {tasks.filter(t => !t.is_finished).length}个进行中任务
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 12, color: "#9ca3af" }}>
+              {classes.length}个班级 · {tasks.filter(t => !t.is_finished).length}个进行中任务
+            </span>
+            <div style={{ width: 1, height: 16, background: "#e5e7eb" }} />
+            <span style={{ fontSize: 12, color: "#374151", fontWeight: 500 }}>
+              👤 {authUser.username}
+            </span>
+            <button className="btn btn-outline btn-sm" onClick={() => { setMustChange(false); setShowChangePwd(true); }}>
+              🔑 改密码
+            </button>
+            <button className="btn btn-ghost btn-sm" style={{ color: "#e02424" }} onClick={handleLogout}>
+              退出
+            </button>
           </div>
         </div>
         <div className="content">
@@ -1310,6 +1600,18 @@ export default function App() {
       </main>
 
       <ToastContainer toasts={toasts} />
+      {showChangePwd && (
+        <ChangePwdModal
+          username={authUser.username}
+          mustChange={mustChange}
+          onClose={() => setShowChangePwd(false)}
+          onSuccess={() => {
+            setShowChangePwd(false);
+            setMustChange(false);
+            showToast("密码已成功修改 🎉", "success");
+          }}
+        />
+      )}
     </div>
   );
 }

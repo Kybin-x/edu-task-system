@@ -65,6 +65,15 @@ create table if not exists scores (
   unique(task_id, student_id)
 );
 
+-- 管理员配置表（存储哈希密码等）
+create table if not exists admin_config (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz default now()
+);
+alter table admin_config enable row level security;
+create policy if not exists "allow_all_admin_config" on admin_config for all using (true) with check (true);
+
 -- 开放 RLS（单教师场景，直接允许所有操作）
 alter table classes  enable row level security;
 alter table students enable row level security;
