@@ -142,8 +142,8 @@ function LoginPage({ onLogin }) {
       <div style={{ width: 380, padding: "0 16px" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>📚</div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: "white", marginBottom: 4 }}>实训管理系统</h1>
-          <p style={{ fontSize: 13, color: "#94a3b8" }}>中职电商 · 课堂任务管理</p>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: "white", marginBottom: 4 }}>实训任务管理登记系统</h1>
+          <p style={{ fontSize: 13, color: "#94a3b8" }}>课堂任务管理</p>
         </div>
         <div style={{ background: "white", borderRadius: 16, padding: 32, boxShadow: "0 24px 80px rgba(0,0,0,0.3)" }}>
           <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 24, color: "#111827" }}>管理员登录</h2>
