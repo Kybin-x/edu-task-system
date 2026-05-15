@@ -178,8 +178,8 @@ function LoginPage({ onLogin }) {
               {loading ? <><span className="spinner" style={{ width: 16, height: 16, borderWidth: 2, marginRight: 8 }} />验证中...</> : "登 录"}
             </button>
           </form>
-          <p style={{ textAlign: "center", fontSize: 12, color: "#9ca3af", marginTop: 20 }}>
-            首次登录默认账号 admin / 123456，请登录后立即修改密码
+          <p style={{ textAlign: "center", fontSize: 12, color: "#94a3b8", marginTop: 20 }}>
+            首次登录请使用 <strong style={{color:"#64748b"}}>admin / 123456</strong>，登录后立即修改密码
           </p>
         </div>
       </div>
@@ -347,16 +347,16 @@ function TierEditor({ tiers, onChange }) {
 // ============================================================
 function Modal({ title, onClose, children, size = "" }) {
   useEffect(() => {
-    const handler = e => { if (e.key === "Escape") onClose(); };
+    const handler = e => { if (e.key === "Escape" && onClose) onClose(); };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [onClose]);
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose && onClose()}>
       <div className={`modal ${size}`}>
         <div className="modal-header">
           <span className="modal-title">{title}</span>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+          {onClose && <button className="modal-close-btn" onClick={onClose}>✕</button>}
         </div>
         {children}
       </div>
@@ -368,73 +368,103 @@ function Modal({ title, onClose, children, size = "" }) {
 // 仪表盘
 // ============================================================
 function Dashboard({ classes, tasks, scores, onNav }) {
-  const totalScores = scores.length;
-  const activeTasks = tasks.filter(t => !t.is_finished).length;
-  const finishedTasks = tasks.filter(t => t.is_finished).length;
+  const activeTasks = tasks.filter(t => !t.is_finished);
+  const finishedTasks = tasks.filter(t => t.is_finished);
+  const validScores = scores.filter(s => !s.is_absent && s.final_score > 0);
+  const globalAvg = validScores.length > 0
+    ? (validScores.reduce((a, s) => a + (s.final_score || 0), 0) / validScores.length).toFixed(1)
+    : "—";
 
   const recentTasks = [...tasks]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 5);
 
+  const stats = [
+    { label: "班级数", val: classes.length, icon: "🏫", accent: "#2563eb", bg: "#eff6ff" },
+    { label: "进行中", val: activeTasks.length, icon: "📝", accent: "#059669", bg: "#f0fdf4" },
+    { label: "已完成", val: finishedTasks.length, icon: "✅", accent: "#7c3aed", bg: "#f5f3ff" },
+    { label: "全局均分", val: globalAvg, icon: "📊", accent: "#d97706", bg: "#fffbeb" },
+  ];
+
   return (
     <div>
-      <div className="grid-4" style={{ marginBottom: 24 }}>
-        {[
-          { label: "班级数", val: classes.length, icon: "🏫", color: "#1a56db" },
-          { label: "进行中任务", val: activeTasks, icon: "📝", color: "#057a55" },
-          { label: "已完成任务", val: finishedTasks, icon: "✅", color: "#6d28d9" },
-          { label: "成绩记录", val: totalScores, icon: "🏆", color: "#c27803" },
-        ].map(s => (
+      <div className="grid-4" style={{ marginBottom: 20 }}>
+        {stats.map(s => (
           <div className="stat-card" key={s.label}>
-            <div className="stat-label">{s.icon} {s.label}</div>
-            <div className="stat-value" style={{ color: s.color }}>{s.val}</div>
+            <div className="stat-card-accent" style={{ background: s.accent }} />
+            <div className="stat-icon" style={{ background: s.bg }}>{s.icon}</div>
+            <div className="stat-label">{s.label}</div>
+            <div className="stat-value" style={{ color: s.accent }}>{s.val}</div>
           </div>
         ))}
       </div>
 
       <div className="grid-2">
         <div className="card">
-          <div className="card-header"><span className="card-title">📋 最近任务</span></div>
-          <div className="card-body">
-            {recentTasks.length === 0 ? <div className="empty"><p>暂无任务</p></div> : recentTasks.map(task => {
-              const taskScores = scores.filter(s => s.task_id === task.id);
-              const cls = classes.find(c => c.id === task.class_id);
-              const total = cls?.student_count || 1;
-              const pct = Math.round((taskScores.length / total) * 100);
-              return (
-                <div key={task.id} style={{ marginBottom: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{task.title}</span>
-                    <span style={{ fontSize: 12, color: "#6b7280" }}>
-                      {taskScores.length}/{total}人 · {task.is_finished ? <span style={{ color: "#6b7280" }}>已结束</span> : <span style={{ color: "#057a55" }}>进行中</span>}
-                    </span>
+          <div className="card-header">
+            <span className="card-title">📋 最近任务</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => onNav("tasks")}>查看全部 →</button>
+          </div>
+          <div style={{ padding: "8px 20px" }}>
+            {recentTasks.length === 0
+              ? <div className="empty"><div className="empty-icon">📋</div><h3>暂无任务</h3><p>前往「任务管理」发布第一个任务</p></div>
+              : recentTasks.map(task => {
+                const taskScores = scores.filter(s => s.task_id === task.id && !s.is_absent);
+                const cls = classes.find(c => c.id === task.class_id);
+                const total = cls?.student_count || 1;
+                const pct = Math.min(100, Math.round((taskScores.length / total) * 100));
+                return (
+                  <div key={task.id} style={{ padding: "12px 0", borderBottom: "1px solid #f8fafc" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{task.title}</div>
+                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{cls?.name}</div>
+                      </div>
+                      <span className={"badge " + (task.is_finished ? "badge-gray" : "badge-green badge-dot")} style={{ marginLeft: 8, flexShrink: 0 }}>
+                        {task.is_finished ? "已结束" : "进行中"}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div className="progress-bar" style={{ flex: 1 }}>
+                        <div className={"progress-fill " + (pct === 100 ? "progress-fill-green" : "progress-fill-blue")} style={{ width: pct + "%" }} />
+                      </div>
+                      <span style={{ fontSize: 11, color: "#64748b", flexShrink: 0, fontWeight: 600 }}>{taskScores.length}/{total}</span>
+                    </div>
                   </div>
-                  <div className="progress-bar"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         </div>
 
         <div className="card">
-          <div className="card-header"><span className="card-title">🏫 班级概览</span></div>
-          <div className="card-body">
-            {classes.length === 0 ? <div className="empty"><p>暂无班级，请先在「数据管理」中添加</p></div> : classes.map(cls => {
-              const clsScores = scores.filter(s => s.class_id === cls.id);
-              const avg = clsScores.length > 0 ? (clsScores.reduce((a, b) => a + (b.final_score || 0), 0) / clsScores.length).toFixed(1) : "—";
-              return (
-                <div key={cls.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>{cls.name}</div>
-                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{cls.student_count} 人</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#1a56db" }}>{avg}</div>
-                    <div style={{ fontSize: 11, color: "#9ca3af" }}>平均分</div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="card-header">
+            <span className="card-title">🏫 班级数据</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => onNav("data")}>管理 →</button>
+          </div>
+          <div style={{ padding: "8px 20px" }}>
+            {classes.length === 0
+              ? <div className="empty"><div className="empty-icon">🏫</div><h3>暂无班级</h3><p>前往「数据管理」添加班级和学生</p></div>
+              : classes.map(cls => {
+                  const clsScores = scores.filter(s => s.class_id === cls.id && !s.is_absent && s.final_score > 0);
+                  const clsTasks  = tasks.filter(t => t.class_id === cls.id);
+                  const avg = clsScores.length > 0
+                    ? (clsScores.reduce((a, b) => a + b.final_score, 0) / clsScores.length).toFixed(1) : "—";
+                  const scoreColor = avg === "—" ? "#94a3b8" : parseFloat(avg) >= 80 ? "#059669" : parseFloat(avg) >= 60 ? "#d97706" : "#dc2626";
+                  return (
+                    <div key={cls.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid #f8fafc" }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{cls.name}</div>
+                        <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
+                          {cls.student_count} 人 · {clsTasks.length} 任务
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 22, fontWeight: 900, color: scoreColor, lineHeight: 1 }}>{avg}</div>
+                        <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>平均分</div>
+                      </div>
+                    </div>
+                  );
+                })}
           </div>
         </div>
       </div>
@@ -487,116 +517,142 @@ function ScorePage({ classes, tasks, scores, onScoreUpdate, showToast }) {
     return new Date(b.created_at) - new Date(a.created_at);
   });
 
-  return (
-    <div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-body">
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">选择要打分的任务</label>
-            <select className="form-select" value={selTask?.id || ""} onChange={e => {
-              const t = tasks.find(t => t.id === e.target.value);
-              setSelTask(t || null);
-            }}>
-              <option value="">— 请选择任务 —</option>
+  // 未选任务时显示任务列表卡片
+  if (!selTask) {
+    return (
+      <div>
+        <div style={{ marginBottom: 16 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>选择任务开始打分</h3>
+          <p style={{ fontSize: 13, color: "#64748b" }}>已结束的任务也可点击进行补录</p>
+        </div>
+        {sortedTasks.length === 0
+          ? <div className="card"><div className="empty"><div className="empty-icon">📋</div><h3>暂无任务</h3><p>请先在「任务管理」中发布任务</p></div></div>
+          : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {sortedTasks.map(t => {
                 const cls = classes.find(c => c.id === t.class_id);
+                const ts  = scores.filter(s => s.task_id === t.id && !s.is_absent);
+                const tot = cls?.student_count || 0;
+                const pct = tot > 0 ? Math.min(100, Math.round(ts.length / tot * 100)) : 0;
                 return (
-                  <option key={t.id} value={t.id}>
-                    {t.is_finished ? "[已结束] " : "[进行中] "}
-                    {t.title} — {cls?.name || "?"}
-                  </option>
+                  <div key={t.id} className="task-card" style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 16 }}
+                    onClick={() => { const found = tasks.find(tk => tk.id === t.id); setSelTask(found || null); }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+                        <span className="task-card-title">{t.title}</span>
+                        {t.is_finished
+                          ? <span className="badge badge-yellow">已结束·可补录</span>
+                          : <span className="badge badge-green badge-dot">进行中</span>}
+                        <span className="badge badge-gray">{cls?.name}</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div className="progress-bar" style={{ flex: 1 }}>
+                          <div className={"progress-fill " + (pct === 100 ? "progress-fill-green" : "progress-fill-blue")} style={{ width: pct + "%" }} />
+                        </div>
+                        <span style={{ fontSize: 12, color: "#64748b", fontWeight: 600, flexShrink: 0 }}>{ts.length}/{tot} 已登记</span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 20, color: "#94a3b8", flexShrink: 0 }}>›</div>
+                  </div>
                 );
               })}
-            </select>
+            </div>
+        }
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* 顶部：返回 + 任务信息 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <button className="btn btn-ghost btn-sm" onClick={() => { setSelTask(null); setStudents([]); }}>← 返回</button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>{selTask.title}</span>
+            {selTask.is_finished
+              ? <span className="badge badge-yellow">补录模式</span>
+              : <span className="badge badge-green badge-dot">进行中</span>}
           </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button className={"btn btn-sm " + (viewMode === "grid" ? "btn-primary" : "btn-outline")} onClick={() => setViewMode("grid")}>⊞</button>
+          <button className={"btn btn-sm " + (viewMode === "list" ? "btn-primary" : "btn-outline")} onClick={() => setViewMode("list")}>≡</button>
         </div>
       </div>
 
-      {selTask && (
-        <>
-          <div className="card" style={{ marginBottom: 16 }}>
-            <div className="card-header">
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span className="card-title">{selTask.title}</span>
-                {selTask.is_finished
-                  ? <span className="badge badge-yellow">补录模式</span>
-                  : <span className="badge badge-green">进行中</span>
-                }
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className={`btn btn-sm ${viewMode === "grid" ? "btn-primary" : "btn-outline"}`} onClick={() => setViewMode("grid")}>⊞ 宫格</button>
-                <button className={`btn btn-sm ${viewMode === "list" ? "btn-primary" : "btn-outline"}`} onClick={() => setViewMode("list")}>≡ 列表</button>
-              </div>
+      {/* 档位统计条 */}
+      {tierStats.length > 0 && (
+        <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 16px", marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          {tierStats.map((t, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <span className={"coef-tier tier-" + i}>{t.label}</span>
+              <span style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>{t.count}人</span>
             </div>
-            {tierStats.length > 0 && (
-              <div style={{ padding: "10px 20px", display: "flex", gap: 12, flexWrap: "wrap", borderBottom: "1px solid #f3f4f6", background: "#fafafa" }}>
-                {tierStats.map((t, i) => (
-                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span className={`coef-tier tier-${i}`}>{t.label}</span>
-                    <span style={{ fontSize: 12, color: "#6b7280" }}>{t.count}人 · ×{t.coef}</span>
-                  </div>
-                ))}
-                <span style={{ fontSize: 12, color: "#9ca3af" }}>已登记：{taskScores.length}/{students.length}</span>
-              </div>
-            )}
-          </div>
+          ))}
+          <span style={{ fontSize: 12, color: "#94a3b8", marginLeft: "auto" }}>
+            已登记 <strong style={{ color: "#2563eb" }}>{taskScores.length}</strong>/{students.length}
+          </span>
+        </div>
+      )}
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            {[["all", "全部"], ["unscored", "未登记"], ["scored", "已登记"]].map(([v, l]) => (
-              <button key={v} className={`btn btn-sm ${filter === v ? "btn-primary" : "btn-outline"}`} onClick={() => setFilter(v)}>{l}</button>
-            ))}
-          </div>
+      {/* 筛选按钮 */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {[["all", "全部", students.length], ["unscored", "未登记", students.length - taskScores.length], ["scored", "已登记", taskScores.length]].map(([v, l, cnt]) => (
+          <button key={v} className={"btn btn-sm " + (filter === v ? "btn-primary" : "btn-outline")} onClick={() => setFilter(v)}>
+            {l} <span style={{ opacity: .7 }}>({cnt})</span>
+          </button>
+        ))}
+      </div>
 
-          {viewMode === "grid" ? (
-            <div className="student-grid">
-              {displayStudents.map(st => {
-                const sc = taskScores.find(s => s.student_id === st.id);
-                const cls = sc?.is_leave ? "leave" : sc ? "scored" : "";
-                return (
-                  <div key={st.id} className={`student-card ${cls}`} onClick={() => setScoringStudent(st)}>
-                    {sc && <span className="check">{sc.is_leave ? "🟡" : "✅"}</span>}
-                    <div className="sname">{st.full_name}</div>
-                    <div className="sno">{st.student_no}</div>
-                    {st.seat_no && <div className="sseat">座位 {st.seat_no}</div>}
-                    {sc && (
-                      <>
-                        <div className="sscore">{sc.final_score}分</div>
-                        <div className="srank">第{sc.rank_no}个登记 · ×{sc.coefficient}</div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="card">
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr><th>学号</th><th>姓名</th><th>基础分</th><th>第几名</th><th>系数</th><th>最终分</th><th>状态</th><th>操作</th></tr>
-                  </thead>
-                  <tbody>
-                    {displayStudents.map(st => {
-                      const sc = taskScores.find(s => s.student_id === st.id);
-                      return (
-                        <tr key={st.id}>
-                          <td>{st.student_no}</td>
-                          <td>{st.full_name}</td>
-                          <td>{sc ? sc.base_score : "—"}</td>
-                          <td>{sc ? `第${sc.rank_no}` : "—"}</td>
-                          <td>{sc ? `×${sc.coefficient}` : "—"}</td>
-                          <td style={{ fontWeight: 700, color: sc ? "#057a55" : "#9ca3af" }}>{sc ? sc.final_score : "—"}</td>
-                          <td>{sc ? (sc.is_leave ? <span className="badge badge-yellow">请假</span> : <span className="badge badge-green">已登记</span>) : <span className="badge badge-gray">未登记</span>}</td>
-                          <td><button className="btn btn-ghost btn-sm" onClick={() => setScoringStudent(st)}>📝 {sc ? "修改" : "打分"}</button></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+      {viewMode === "grid" ? (
+        <div className="student-grid">
+          {displayStudents.map(st => {
+            const sc = taskScores.find(s => s.student_id === st.id);
+            const cardCls = sc?.is_leave ? "leave" : sc ? "scored" : "";
+            return (
+              <div key={st.id} className={"student-card " + cardCls} onClick={() => setScoringStudent(st)}>
+                {sc && <span className="check">{sc.is_leave ? "🟡" : "✅"}</span>}
+                <div className="sname">{st.full_name}</div>
+                <div className="sno">{st.student_no}</div>
+                {st.seat_no && <div className="sseat">📍{st.seat_no}</div>}
+                {sc && !sc.is_absent && (
+                  <>
+                    <div className="sscore">{sc.final_score}</div>
+                    <div className="srank">第{sc.rank_no}位 · ×{sc.coefficient}</div>
+                  </>
+                )}
               </div>
-            </div>
-          )}
-        </>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>学号</th><th>姓名</th><th>座位</th><th>基础分</th><th>第几名</th><th>系数</th><th>最终分</th><th>状态</th><th>操作</th></tr>
+              </thead>
+              <tbody>
+                {displayStudents.map(st => {
+                  const sc = taskScores.find(s => s.student_id === st.id);
+                  return (
+                    <tr key={st.id}>
+                      <td>{st.student_no}</td>
+                      <td style={{ fontWeight: 600 }}>{st.full_name}</td>
+                      <td>{st.seat_no || "—"}</td>
+                      <td>{sc ? sc.base_score : "—"}</td>
+                      <td>{sc && !sc.is_absent ? "第" + sc.rank_no + "名" : "—"}</td>
+                      <td>{sc && !sc.is_absent ? "×" + sc.coefficient : "—"}</td>
+                      <td style={{ fontWeight: 700, color: sc ? "#059669" : "#94a3b8" }}>{sc ? sc.final_score : "—"}</td>
+                      <td>{sc ? (sc.is_leave ? <span className="badge badge-yellow">请假</span> : <span className="badge badge-green">已登记</span>) : <span className="badge badge-gray">未登记</span>}</td>
+                      <td><button className="btn btn-outline btn-sm" onClick={() => setScoringStudent(st)}>{sc && !sc.is_absent ? "修改" : "打分"}</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {scoringStudent && selTask && (
@@ -648,63 +704,92 @@ function ScoreModal({ student, task, existingScore, allScores, classTotal, onClo
   }
 
   return (
-    <Modal title={`打分：${student.full_name}（${student.student_no}）`} onClose={onClose}>
+    <Modal title={"打分：" + student.full_name} onClose={onClose}>
       <div className="modal-body">
-        {isLeave ? (
-          <div className="alert alert-warning">请假登记：固定60分，不占排名序号</div>
-        ) : (
+        {/* 学生信息条 */}
+        <div style={{ background: "#f8fafc", borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+          display: "flex", gap: 16, fontSize: 12, color: "#64748b" }}>
+          <span>学号：{student.student_no}</span>
+          {student.seat_no && <span>座位：{student.seat_no}</span>}
+          <span style={{ marginLeft: "auto", fontWeight: 700, color: "#2563eb" }}>当前第 {currentRank} 位登记</span>
+        </div>
+
+        {/* 请假开关 */}
+        <div onClick={() => setIsLeave(v => !v)} style={{
+          display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+          background: isLeave ? "#fffbeb" : "#f8fafc",
+          border: "2px solid " + (isLeave ? "#fcd34d" : "#e2e8f0"),
+          borderRadius: 10, cursor: "pointer", marginBottom: 16,
+          transition: "all .15s", userSelect: "none",
+        }}>
+          <div style={{
+            width: 20, height: 20, borderRadius: 6,
+            background: isLeave ? "#d97706" : "white",
+            border: "2px solid " + (isLeave ? "#d97706" : "#d1d5db"),
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0, transition: "all .15s",
+          }}>
+            {isLeave && <span style={{ color: "white", fontSize: 12, fontWeight: 900 }}>✓</span>}
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: isLeave ? "#92400e" : "#374151" }}>
+              🟡 请假
+            </div>
+            <div style={{ fontSize: 11, color: "#94a3b8" }}>固定记 60 分，不参与排名顺序</div>
+          </div>
+        </div>
+
+        {!isLeave && (
           <>
             <div className="form-group">
-              <label className="form-label">基础分</label>
+              <label className="form-label">选择基础分</label>
               <div className="score-options">
                 {baseOptions.map(s => (
-                  <button key={s} className={`score-opt ${baseScore === s ? "selected" : ""}`} onClick={() => setBaseScore(s)}>{s}</button>
+                  <button key={s} className={"score-opt" + (baseScore === s ? " selected" : "")} onClick={() => setBaseScore(s)}>{s}</button>
                 ))}
               </div>
             </div>
-            <div className="form-group">
-              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                <input type="checkbox" checked={useManual} onChange={e => setUseManual(e.target.checked)} />
-                手动覆盖系数
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 8 }}>
+                <input type="checkbox" checked={useManual} onChange={e => setUseManual(e.target.checked)} style={{ width: 15, height: 15 }} />
+                <span style={{ fontSize: 13, fontWeight: 500 }}>手动覆盖系数</span>
+                <span style={{ fontSize: 11, color: "#94a3b8" }}>（补录或特殊情况）</span>
               </label>
               {useManual && (
-                <input type="number" min="0" max="2" step="0.01" className="form-input" style={{ marginTop: 8, width: 120 }}
+                <input type="number" min="0" max="2" step="0.01" className="form-input" style={{ width: 140 }}
                   value={manualCoef} onChange={e => setManualCoef(e.target.value)} placeholder="如 0.95" />
               )}
             </div>
           </>
         )}
 
-        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 16 }}>
-          <input type="checkbox" checked={isLeave} onChange={e => setIsLeave(e.target.checked)} />
-          本次请假（固定60分，不占排名）
-        </label>
-
-        <div style={{ background: "#f0fdf4", border: "1px solid #a7f3d0", borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 12, color: "#065f46", marginBottom: 10, fontWeight: 600 }}>📊 计算预览</div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ background: "white", borderRadius: 8, padding: "8px 14px", textAlign: "center", minWidth: 60 }}>
-              <div style={{ fontSize: 10, color: "#9ca3af" }}>第几名</div>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>{currentRank}</div>
-            </div>
-            <div style={{ background: "white", borderRadius: 8, padding: "8px 14px", textAlign: "center", minWidth: 60 }}>
-              <div style={{ fontSize: 10, color: "#9ca3af" }}>档位</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#6d28d9" }}>{previewLabel}</div>
-            </div>
-            <div style={{ background: "white", borderRadius: 8, padding: "8px 14px", textAlign: "center", minWidth: 60 }}>
-              <div style={{ fontSize: 10, color: "#9ca3af" }}>系数</div>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>×{isLeave ? "—" : (previewCoef?.toFixed(2) || "—")}</div>
-            </div>
-            <div style={{ background: "#057a55", borderRadius: 8, padding: "8px 14px", textAlign: "center", minWidth: 70, flex: 1 }}>
-              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>最终分</div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: "white" }}>{previewFinal ?? "—"}</div>
+        {/* 预览结果 */}
+        <div style={{ marginTop: 16, background: "linear-gradient(135deg, #f0fdf4, #eff6ff)", border: "1px solid #a7f3d0", borderRadius: 12, padding: 16 }}>
+          <div style={{ fontSize: 11, color: "#059669", fontWeight: 700, marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.5px" }}>计算预览</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
+            {!isLeave && <>
+              <div style={{ background: "white", borderRadius: 8, padding: "8px 12px", textAlign: "center", flex: 1, boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}>
+                <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 4 }}>第几名</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: "#0f172a", lineHeight: 1 }}>{currentRank}</div>
+              </div>
+              <div style={{ background: "white", borderRadius: 8, padding: "8px 12px", textAlign: "center", flex: 1, boxShadow: "0 1px 3px rgba(0,0,0,.06)" }}>
+                <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 4 }}>档位·系数</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#7c3aed", lineHeight: 1 }}>{previewLabel}</div>
+                <div style={{ fontSize: 18, fontWeight: 900, color: "#0f172a", marginTop: 2 }}>×{previewCoef?.toFixed(2) || "—"}</div>
+              </div>
+            </>}
+            <div style={{ background: "#059669", borderRadius: 10, padding: "10px 16px", textAlign: "center", flex: 2, display: "flex", flexDirection: "column", justifyContent: "center", boxShadow: "0 4px 12px rgba(5,150,105,.3)" }}>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,.7)", marginBottom: 4 }}>最终得分</div>
+              <div style={{ fontSize: 36, fontWeight: 900, color: "white", lineHeight: 1 }}>{previewFinal ?? (isLeave ? 60 : "—")}</div>
             </div>
           </div>
         </div>
       </div>
       <div className="modal-footer">
         <button className="btn btn-outline" onClick={onClose}>取消</button>
-        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? "保存中..." : "确认登记"}</button>
+        <button className="btn btn-success" style={{ flex: 1, justifyContent: "center" }} onClick={handleSave} disabled={saving}>
+          {saving ? "保存中..." : "✓ 确认登记"}
+        </button>
       </div>
     </Modal>
   );
@@ -761,54 +846,53 @@ function TaskPage({ classes, tasks, scores, onRefresh, showToast }) {
         <button className="btn btn-primary" onClick={() => setShowCreate(true)}>＋ 发布新任务</button>
       </div>
 
-      {sortedTasks.length === 0 ? (
-        <div className="card"><div className="empty"><div className="empty-icon">📋</div><p>还没有任务，点击「发布新任务」开始</p></div></div>
-      ) : sortedTasks.map(task => {
-        const cls = classes.find(c => c.id === task.class_id);
-        const taskScores = scores.filter(s => s.task_id === task.id && !s.is_absent);
-        const total = cls?.student_count || 0;
-        const pct = total ? Math.round((taskScores.length / total) * 100) : 0;
-        const tiers = task.coefficient_config || DEFAULT_TIERS;
-
-        return (
-          <div className="card" key={task.id} style={{ marginBottom: 12 }}>
-            <div className="card-header" style={{ flexWrap: "wrap", gap: 8 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span className="card-title">{task.title}</span>
-                  {task.is_finished
-                    ? <span className="badge badge-gray">已结束</span>
-                    : <span className="badge badge-green">进行中</span>
-                  }
+      {sortedTasks.length === 0
+        ? <div className="card"><div className="empty"><div className="empty-icon">📋</div><h3>暂无任务</h3><p>点击右上角发布第一个任务</p></div></div>
+        : sortedTasks.map(task => {
+          const cls = classes.find(c => c.id === task.class_id);
+          const taskScores = scores.filter(s => s.task_id === task.id && !s.is_absent);
+          const total = cls?.student_count || 0;
+          const pct = total ? Math.min(100, Math.round((taskScores.length / total) * 100)) : 0;
+          const tiers = task.coefficient_config || DEFAULT_TIERS;
+          return (
+            <div className="task-card" key={task.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                    <span className="task-card-title">{task.title}</span>
+                    {task.is_finished
+                      ? <span className="badge badge-gray">已结束</span>
+                      : <span className="badge badge-green badge-dot">进行中</span>}
+                    <span className="badge badge-blue">{cls?.name}</span>
+                  </div>
+                  {task.description && <p style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>{task.description}</p>}
+                  <div style={{ fontSize: 11, color: "#94a3b8" }}>
+                    {new Date(task.created_at).toLocaleDateString("zh-CN")} · 基础分：{(task.base_score_options || []).join("/")}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>
-                  {cls?.name} · 已登记 {taskScores.length}/{total} 人
-                  {task.description && ` · ${task.description}`}
+                <div className="task-card-actions">
+                  <button className="btn btn-outline btn-sm" onClick={() => setEditingTiers(task)}>⚙ 系数</button>
+                  {!task.is_finished
+                    ? <button className="btn btn-outline btn-sm" onClick={() => handleFinish(task)}>🔒 结束</button>
+                    : <button className="btn btn-outline btn-sm" onClick={() => handleReopen(task)}>🔓 补录</button>}
+                  <button className="btn btn-ghost btn-sm" style={{ color: "#dc2626" }} onClick={() => setDelTask(task)}>删除</button>
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
-                <button className="btn btn-outline btn-sm" onClick={() => setEditingTiers(task)}>⚙ 系数</button>
-                {!task.is_finished
-                  ? <button className="btn btn-outline btn-sm" onClick={() => handleFinish(task)}>🔒 结束</button>
-                  : <button className="btn btn-outline btn-sm" onClick={() => handleReopen(task)}>🔓 补录</button>
-                }
-                <button className="btn btn-danger btn-sm" onClick={() => setDelTask(task)}>删除</button>
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {tiers.map((t, i) => <span key={i} className={"coef-tier tier-" + i}>×{t.coef} {t.label}</span>)}
+                  </div>
+                  <span style={{ color: "#64748b", fontWeight: 600, flexShrink: 0 }}>{taskScores.length}/{total} · {pct}%</span>
+                </div>
+                <div className="progress-bar">
+                  <div className={"progress-fill " + (pct === 100 ? "progress-fill-green" : "progress-fill-blue")} style={{ width: pct + "%" }} />
+                </div>
               </div>
             </div>
-            <div style={{ padding: "10px 20px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#9ca3af", marginBottom: 4 }}>
-                <span>打分进度</span><span>{pct}%</span>
-              </div>
-              <div className="progress-bar"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
-              <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {tiers.map((t, i) => (
-                  <span key={i} className={`coef-tier tier-${i}`}>{t.label}×{t.coef}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+          );
+        })
+      }
 
       {showCreate && (
         <CreateTaskModal classes={classes} onClose={() => setShowCreate(false)} onSave={async () => { setShowCreate(false); onRefresh(); }} showToast={showToast} />
@@ -1526,8 +1610,9 @@ export default function App() {
 
   if (loading) return (
     <div className="loading-screen">
+      <div style={{ fontSize: 40, marginBottom: 4 }}>📚</div>
       <div className="spinner" />
-      <p style={{ color: "#6b7280" }}>连接数据库中...</p>
+      <p style={{ color: "#64748b", fontSize: 13 }}>正在加载数据…</p>
     </div>
   );
 
@@ -1574,41 +1659,54 @@ export default function App() {
       {/* 桌面端侧边栏 */}
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <h1>📚 实训管理</h1>
-          <p>中职电商 · 课堂任务系统</p>
+          <div className="sidebar-logo-icon">📚</div>
+          <div className="sidebar-logo-text">
+            <h1>实训管理</h1>
+            <p>中职电商课堂系统</p>
+          </div>
         </div>
         <nav className="sidebar-nav">
           {navItems.map(sec => (
-            <div key={sec.section}>
-              <div className="nav-section">{sec.section}</div>
+            <div className="nav-group" key={sec.section}>
+              <div className="nav-label">{sec.section}</div>
               {sec.items.map(item => (
-                <div key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => setPage(item.id)}>
-                  <span className="icon">{item.icon}</span>
+                <div key={item.id} className={"nav-item" + (page === item.id ? " active" : "")} onClick={() => setPage(item.id)}>
+                  <span className="nav-icon">{item.icon}</span>
                   <span>{item.label}</span>
                 </div>
               ))}
             </div>
           ))}
         </nav>
+        <div className="sidebar-footer">
+          <div className="sidebar-user-avatar">{authUser.username[0].toUpperCase()}</div>
+          <div className="sidebar-user-info">
+            <div className="name">{authUser.username}</div>
+            <div className="role">管理员</div>
+          </div>
+          <div className="sidebar-user-actions">
+            <button className="sidebar-icon-btn" title="修改密码" onClick={() => { setMustChange(false); setShowChangePwd(true); }}>🔑</button>
+            <button className="sidebar-icon-btn" title="退出登录" onClick={handleLogout} style={{ color: "#ef4444" }}>⏻</button>
+          </div>
+        </div>
       </aside>
 
       <main className="main">
         <div className="topbar">
-          <h2 style={{ fontSize: 16, fontWeight: 600 }}>{pageTitle}</h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span className="topbar-stats" style={{ fontSize: 12, color: "#9ca3af" }}>
-              {classes.length}个班级 · {tasks.filter(t => !t.is_finished).length}进行中
+          <div className="topbar-left">
+            <span className="topbar-title">{pageTitle}</span>
+            <span className="topbar-badge topbar-stats">
+              {classes.length} 班级 · {tasks.filter(t => !t.is_finished).length} 进行中
             </span>
-            <div className="topbar-divider" style={{ width: 1, height: 16, background: "#e5e7eb" }} />
-            <span style={{ fontSize: 12, color: "#374151", fontWeight: 500 }}>
-              👤 {authUser.username}
-            </span>
-            <button className="btn btn-outline btn-sm" onClick={() => { setMustChange(false); setShowChangePwd(true); }}>
-              🔑
-            </button>
-            <button className="btn btn-ghost btn-sm" style={{ color: "#e02424" }} onClick={handleLogout}>
-              退出
-            </button>
+          </div>
+          <div className="topbar-right">
+            {/* 手机端显示用户操作 */}
+            <button className="btn btn-ghost btn-sm" style={{ display: "none" }} id="mobile-pwd-btn"
+              onClick={() => { setMustChange(false); setShowChangePwd(true); }}>🔑</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setMustChange(false); setShowChangePwd(true); }}
+              title="修改密码" style={{ fontSize: 16, padding: "6px 8px" }}>🔑</button>
+            <button className="btn btn-ghost btn-sm" onClick={handleLogout}
+              style={{ color: "#dc2626", fontSize: 13 }}>退出</button>
           </div>
         </div>
         <div className="content">
