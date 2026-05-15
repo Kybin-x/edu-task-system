@@ -1,31 +1,36 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
-// ============================================================
-// 持久化存储工具
-// ============================================================
-
-
-function dbGet(key) {
-  try {
-    const v = localStorage.getItem(key);
-    return v ? JSON.parse(v) : null;
-  } catch { return null; }
-}
-
-function dbSet(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch(e) { console.error('storage error', e); }
-}
-
-function uuid() {
-  return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
-function now() { return new Date().toISOString(); }
+import { supabase } from "./supabase";
 
 // ============================================================
-// 系数计算
+// 工具函数
+// ============================================================
+function calcCoefficient(rankNo, classTotal, tiers) {
+  if (!tiers || tiers.length === 0) return { coef: 1.0, label: "无系数" };
+  const pct = (rankNo / Math.max(classTotal, 1)) * 100;
+  for (const tier of tiers) {
+    if (pct <= tier.max_percentile) return { coef: tier.coef, label: tier.label };
+  }
+  const last = tiers[tiers.length - 1];
+  return { coef: last.coef, label: last.label };
+}
+
+function calcFinalScore(base, coef) {
+  return Math.min(100, Math.round(base * coef * 10) / 10);
+}
+
+function exportCSV(rows, filename) {
+  const BOM = "\uFEFF";
+  const lines = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","));
+  const blob = new Blob([BOM + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// 默认系数档位
 // ============================================================
 const DEFAULT_TIERS = [
   { max_percentile: 20, coef: 1.00, label: "优秀梯队" },
@@ -33,86 +38,6 @@ const DEFAULT_TIERS = [
   { max_percentile: 80, coef: 0.90, label: "普通梯队" },
   { max_percentile: 100, coef: 0.85, label: "待提高梯队" },
 ];
-
-function calcCoefficient(rankNo, classTotal, tiers = DEFAULT_TIERS) {
-  if (!rankNo || !classTotal) return { coef: 1.0, label: "—", percentile: 0 };
-  const percentile = (rankNo / classTotal) * 100;
-  for (const tier of tiers) {
-    if (percentile <= tier.max_percentile) return { coef: tier.coef, label: tier.label, percentile };
-  }
-  const last = tiers[tiers.length - 1];
-  return { coef: last.coef, label: last.label, percentile };
-}
-
-function calcFinalScore(base, coef) {
-  return Math.min(100, Math.round(base * coef * 10) / 10);
-}
-
-// ============================================================
-// 主题色
-// ============================================================
-const THEME = {
-  primary: "#1a56db",
-  primaryLight: "#ebf0ff",
-  success: "#057a55",
-  successLight: "#e3fcef",
-  warning: "#c27803",
-  warningLight: "#fdf6b2",
-  danger: "#e02424",
-  dangerLight: "#fde8e8",
-  gray: "#6b7280",
-  grayLight: "#f3f4f6",
-  border: "#e5e7eb",
-  bg: "#f9fafb",
-};
-
-// ============================================================
-// 初始演示数据
-// ============================================================
-const DEMO_DATA = {
-  classes: [
-    { id: "c1", name: "电商2301班", grade: "2023级", student_count: 0 },
-    { id: "c2", name: "电商2302班", grade: "2023级", student_count: 0 },
-  ],
-  students: [
-    { id: "s1", class_id: "c1", student_no: "2301001", full_name: "张小明", seat_no: "A1" },
-    { id: "s2", class_id: "c1", student_no: "2301002", full_name: "李小红", seat_no: "A2" },
-    { id: "s3", class_id: "c1", student_no: "2301003", full_name: "王小华", seat_no: "A3" },
-    { id: "s4", class_id: "c1", student_no: "2301004", full_name: "赵小芳", seat_no: "A4" },
-    { id: "s5", class_id: "c1", student_no: "2301005", full_name: "陈小刚", seat_no: "B1" },
-    { id: "s6", class_id: "c1", student_no: "2301006", full_name: "刘小燕", seat_no: "B2" },
-    { id: "s7", class_id: "c1", student_no: "2301007", full_name: "孙小伟", seat_no: "B3" },
-    { id: "s8", class_id: "c1", student_no: "2301008", full_name: "周小丽", seat_no: "B4" },
-    { id: "s9", class_id: "c1", student_no: "2301009", full_name: "吴小强", seat_no: "C1" },
-    { id: "s10", class_id: "c1", student_no: "2301010", full_name: "郑小梅", seat_no: "C2" },
-    { id: "s11", class_id: "c2", student_no: "2302001", full_name: "冯小军", seat_no: "A1" },
-    { id: "s12", class_id: "c2", student_no: "2302002", full_name: "蒋小云", seat_no: "A2" },
-    { id: "s13", class_id: "c2", student_no: "2302003", full_name: "沈小峰", seat_no: "A3" },
-    { id: "s14", class_id: "c2", student_no: "2302004", full_name: "韩小玲", seat_no: "A4" },
-    { id: "s15", class_id: "c2", student_no: "2302005", full_name: "杨小洋", seat_no: "B1" },
-    { id: "s16", class_id: "c2", student_no: "2302006", full_name: "朱小静", seat_no: "B2" },
-    { id: "s17", class_id: "c2", student_no: "2302007", full_name: "秦小博", seat_no: "B3" },
-    { id: "s18", class_id: "c2", student_no: "2302008", full_name: "许小萍", seat_no: "B4" },
-  ],
-  tasks: [
-    {
-      id: "t1", class_id: "c1", title: "店铺首页Banner设计", description: "使用PS制作1920×600像素店铺Banner，包含主图、促销文字和品牌logo，导出为JPG格式",
-      base_score_options: [100, 90, 80, 70, 60], coefficient_config: DEFAULT_TIERS,
-      is_finished: false, created_at: new Date(Date.now() - 86400000).toISOString()
-    },
-    {
-      id: "t2", class_id: "c1", title: "商品详情页文案撰写", description: "为指定商品撰写详情页文案，包含卖点提炼、规格说明和使用场景，不少于500字",
-      base_score_options: [100, 90, 80, 70, 60], coefficient_config: DEFAULT_TIERS,
-      is_finished: true, created_at: new Date(Date.now() - 172800000).toISOString()
-    },
-  ],
-  scores: [],
-};
-
-// ============================================================
-// CSS
-// ============================================================
-
 
 // ============================================================
 // Toast
@@ -129,8 +54,8 @@ function ToastContainer({ toasts }) {
 
 function useToast() {
   const [toasts, setToasts] = useState([]);
-  const show = useCallback((msg, type = "success") => {
-    const id = uuid();
+  const show = useCallback((msg, type = "info") => {
+    const id = Date.now();
     setToasts(p => [...p, { id, msg, type }]);
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3000);
   }, []);
@@ -138,124 +63,103 @@ function useToast() {
 }
 
 // ============================================================
-// Modal
+// 系数档位编辑器
 // ============================================================
-function Modal({ title, onClose, children, footer }) {
+function TierEditor({ tiers, onChange }) {
+  const update = (i, key, val) => {
+    const next = tiers.map((t, j) => j === i ? { ...t, [key]: key === "label" ? val : parseFloat(val) || 0 } : t);
+    onChange(next);
+  };
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-header">
-          <span className="modal-title">{title}</span>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">{children}</div>
-        {footer && <div className="modal-footer">{footer}</div>}
-      </div>
-    </div>
+    <table className="coef-table">
+      <thead>
+        <tr>
+          <th>档位名称</th>
+          <th>上限百分位(%)</th>
+          <th>系数</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tiers.map((t, i) => (
+          <tr key={i}>
+            <td><input value={t.label} onChange={e => update(i, "label", e.target.value)} /></td>
+            <td><input type="number" min="1" max="100" step="1" value={t.max_percentile} onChange={e => update(i, "max_percentile", e.target.value)} /></td>
+            <td><input type="number" min="0" max="2" step="0.01" value={t.coef} onChange={e => update(i, "coef", e.target.value)} /></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
 // ============================================================
-// 数据 Hook
+// Modal
 // ============================================================
-function useData() {
-  const [classes, setClasses] = useState([]);
-  const [students, setStudents] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [scores, setScores] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-
+function Modal({ title, onClose, children, size = "" }) {
   useEffect(() => {
-    const c = dbGet("etm_classes") || DEMO_DATA.classes;
-    const s = dbGet("etm_students") || DEMO_DATA.students;
-    const t = dbGet("etm_tasks") || DEMO_DATA.tasks;
-    const sc = dbGet("etm_scores") || DEMO_DATA.scores;
-    const fixed = c.map(cl => ({
-      ...cl,
-      student_count: s.filter(st => st.class_id === cl.id && st.is_active !== false).length
-    }));
-    setClasses(fixed);
-    setStudents(s);
-    setTasks(t);
-    setScores(sc);
-    setLoaded(true);
-  }, []);
-
-  const saveClasses = (v) => { setClasses(v); dbSet("etm_classes", v); };
-  const saveStudents = (v) => { setStudents(v); dbSet("etm_students", v); };
-  const saveTasks = (v) => { setTasks(v); dbSet("etm_tasks", v); };
-  const saveScores = (v) => { setScores(v); dbSet("etm_scores", v); };
-
-  return { classes, students, tasks, scores, loaded, saveClasses, saveStudents, saveTasks, saveScores };
+    const handler = e => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onClose]);
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={`modal ${size}`}>
+        <div className="modal-header">
+          <span className="modal-title">{title}</span>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 // ============================================================
 // 仪表盘
 // ============================================================
-function Dashboard({ data }) {
-  const { classes, students, tasks, scores } = data;
-  const activeTasks = tasks.filter(t => !t.is_finished);
-  const finishedTasks = tasks.filter(t => t.is_finished);
+function Dashboard({ classes, tasks, scores, onNav }) {
   const totalScores = scores.length;
+  const activeTasks = tasks.filter(t => !t.is_finished).length;
+  const finishedTasks = tasks.filter(t => t.is_finished).length;
 
-  // 最近任务
-  const recentTasks = [...tasks].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 5);
+  const recentTasks = [...tasks]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 5);
 
   return (
     <div>
-      <div className="grid-4" style={{ marginBottom: 20 }}>
-        <div className="stat-card">
-          <div className="stat-label">📚 班级总数</div>
-          <div className="stat-value">{classes.length}</div>
-          <div className="stat-sub">共 {students.filter(s => s.is_active !== false).length} 名学生</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">📋 进行中任务</div>
-          <div className="stat-value" style={{ color: "#1a56db" }}>{activeTasks.length}</div>
-          <div className="stat-sub">待完成登记</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">✅ 已完成任务</div>
-          <div className="stat-value" style={{ color: "#057a55" }}>{finishedTasks.length}</div>
-          <div className="stat-sub">已结束登记</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">📝 成绩记录数</div>
-          <div className="stat-value" style={{ color: "#c27803" }}>{totalScores}</div>
-          <div className="stat-sub">累计登记</div>
-        </div>
+      <div className="grid-4" style={{ marginBottom: 24 }}>
+        {[
+          { label: "班级数", val: classes.length, icon: "🏫", color: "#1a56db" },
+          { label: "进行中任务", val: activeTasks, icon: "📝", color: "#057a55" },
+          { label: "已完成任务", val: finishedTasks, icon: "✅", color: "#6d28d9" },
+          { label: "成绩记录", val: totalScores, icon: "🏆", color: "#c27803" },
+        ].map(s => (
+          <div className="stat-card" key={s.label}>
+            <div className="stat-label">{s.icon} {s.label}</div>
+            <div className="stat-value" style={{ color: s.color }}>{s.val}</div>
+          </div>
+        ))}
       </div>
 
       <div className="grid-2">
         <div className="card">
-          <div className="card-header">
-            <span className="card-title">最近任务</span>
-          </div>
-          <div>
-            {recentTasks.length === 0 ? (
-              <div className="empty"><div className="empty-icon">📋</div><p>暂无任务</p></div>
-            ) : recentTasks.map(t => {
-              const cls = classes.find(c => c.id === t.class_id);
-              const taskScores = scores.filter(s => s.task_id === t.id);
-              const total = cls?.student_count || 0;
-              const pct = total > 0 ? Math.round(taskScores.length / total * 100) : 0;
+          <div className="card-header"><span className="card-title">📋 最近任务</span></div>
+          <div className="card-body">
+            {recentTasks.length === 0 ? <div className="empty"><p>暂无任务</p></div> : recentTasks.map(task => {
+              const taskScores = scores.filter(s => s.task_id === task.id);
+              const cls = classes.find(c => c.id === task.class_id);
+              const total = cls?.student_count || 1;
+              const pct = Math.round((taskScores.length / total) * 100);
               return (
-                <div key={t.id} style={{ padding: "12px 20px", borderBottom: "1px solid #f3f4f6" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{t.title}</div>
-                      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{cls?.name} · {new Date(t.created_at).toLocaleDateString("zh-CN")}</div>
-                    </div>
-                    <span className={`badge ${t.is_finished ? "badge-green" : "badge-blue"}`}>
-                      {t.is_finished ? "已结束" : "进行中"}
+                <div key={task.id} style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{task.title}</span>
+                    <span style={{ fontSize: 12, color: "#6b7280" }}>
+                      {taskScores.length}/{total}人 · {task.is_finished ? <span style={{ color: "#6b7280" }}>已结束</span> : <span style={{ color: "#057a55" }}>进行中</span>}
                     </span>
                   </div>
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-                      <span>登记进度</span><span>{taskScores.length}/{total} ({pct}%)</span>
-                    </div>
-                    <div className="progress-bar"><div className="progress-fill" style={{ width: pct + "%" }} /></div>
-                  </div>
+                  <div className="progress-bar"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
                 </div>
               );
             })}
@@ -263,31 +167,24 @@ function Dashboard({ data }) {
         </div>
 
         <div className="card">
-          <div className="card-header"><span className="card-title">班级概览</span></div>
-          <div>
-            {classes.map(cls => {
-              const clsStudents = students.filter(s => s.class_id === cls.id && s.is_active !== false);
-              const clsTasks = tasks.filter(t => t.class_id === cls.id);
-              const clsScores = scores.filter(s => {
-                const task = tasks.find(t => t.id === s.task_id);
-                return task?.class_id === cls.id;
-              });
+          <div className="card-header"><span className="card-title">🏫 班级概览</span></div>
+          <div className="card-body">
+            {classes.length === 0 ? <div className="empty"><p>暂无班级，请先在「数据管理」中添加</p></div> : classes.map(cls => {
+              const clsScores = scores.filter(s => s.class_id === cls.id);
+              const avg = clsScores.length > 0 ? (clsScores.reduce((a, b) => a + (b.final_score || 0), 0) / clsScores.length).toFixed(1) : "—";
               return (
-                <div key={cls.id} style={{ padding: "14px 20px", borderBottom: "1px solid #f3f4f6" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontWeight: 600 }}>{cls.name}</div>
-                      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>{cls.grade}</div>
-                    </div>
-                    <div style={{ textAlign: "right", fontSize: 12, color: "#6b7280" }}>
-                      <div>👨‍🎓 {clsStudents.length} 人</div>
-                      <div>📋 {clsTasks.length} 个任务</div>
-                    </div>
+                <div key={cls.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{cls.name}</div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{cls.student_count} 人</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#1a56db" }}>{avg}</div>
+                    <div style={{ fontSize: 11, color: "#9ca3af" }}>平均分</div>
                   </div>
                 </div>
               );
             })}
-            {classes.length === 0 && <div className="empty"><div className="empty-icon">🏫</div><p>暂无班级</p></div>}
           </div>
         </div>
       </div>
@@ -296,365 +193,127 @@ function Dashboard({ data }) {
 }
 
 // ============================================================
-// 任务管理
+// 打分登记
 // ============================================================
-function TaskManager({ data, toast }) {
-  const { classes, tasks, scores, saveTasks, saveScores } = data;
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ class_id: "", title: "", description: "", base_score_options: "100,90,80,70,60" });
-  const [activeTab, setActiveTab] = useState("active");
-  const [confirmFinish, setConfirmFinish] = useState(null);
-
-  const activeTasks = tasks.filter(t => !t.is_finished);
-  const finishedTasks = tasks.filter(t => t.is_finished);
-  const displayTasks = activeTab === "active" ? activeTasks : finishedTasks;
-
-  const handleAdd = () => {
-    if (!form.class_id || !form.title.trim()) { toast.show("请填写班级和任务名称", "error"); return; }
-    const opts = form.base_score_options.split(",").map(v => parseInt(v.trim())).filter(v => !isNaN(v) && v > 0);
-    if (opts.length === 0) { toast.show("请设置有效的基础分选项", "error"); return; }
-    const newTask = {
-      id: uuid(), class_id: form.class_id, title: form.title.trim(),
-      description: form.description.trim(), base_score_options: opts,
-      coefficient_config: DEFAULT_TIERS, is_finished: false, created_at: now()
-    };
-    saveTasks([...tasks, newTask]);
-    setShowAdd(false);
-    setForm({ class_id: "", title: "", description: "", base_score_options: "100,90,80,70,60" });
-    toast.show("任务发布成功 🎉");
-  };
-
-  const handleFinish = async (task) => {
-    // batch unscored → 0
-    const cls = classes.find(c => c.id === task.class_id);
-    const allStudents = data.students.filter(s => s.class_id === task.class_id && s.is_active !== false);
-    const scoredIds = scores.filter(s => s.task_id === task.id).map(s => s.student_id);
-    const unscored = allStudents.filter(s => !scoredIds.includes(s.id));
-    const classTotal = cls?.student_count || allStudents.length;
-
-    const newScores = unscored.map(s => {
-      const rankNo = scoredIds.length + 1;
-      return {
-        id: uuid(), task_id: task.id, student_id: s.id,
-        base_score: 0, rank_no: null, coefficient: 0, final_score: 0,
-        is_manual_coef: false, is_leave: false, is_absent: true,
-        remark: "未提交", scored_at: now()
-      };
-    });
-
-    const updatedTasks = tasks.map(t => t.id === task.id ? { ...t, is_finished: true } : t);
-    saveTasks(updatedTasks);
-    if (newScores.length > 0) saveScores([...scores, ...newScores]);
-    setConfirmFinish(null);
-    toast.show(`任务已结束，${unscored.length} 名未提交学生记 0 分`);
-  };
-
-  const handleDelete = async (taskId) => {
-    saveTasks(tasks.filter(t => t.id !== taskId));
-    saveScores(scores.filter(s => s.task_id !== taskId));
-    toast.show("任务已删除");
-  };
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <div className="tabs" style={{ margin: 0 }}>
-          <div className={`tab ${activeTab === "active" ? "active" : ""}`} onClick={() => setActiveTab("active")}>进行中 ({activeTasks.length})</div>
-          <div className={`tab ${activeTab === "finished" ? "active" : ""}`} onClick={() => setActiveTab("finished")}>已完成 ({finishedTasks.length})</div>
-        </div>
-        <button className="btn btn-primary" onClick={() => setShowAdd(true)}>＋ 发布新任务</button>
-      </div>
-
-      {displayTasks.length === 0 ? (
-        <div className="card"><div className="empty"><div className="empty-icon">📋</div><p>{activeTab === "active" ? "暂无进行中任务，点击发布新任务" : "暂无已完成任务"}</p></div></div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {displayTasks.map(task => {
-            const cls = classes.find(c => c.id === task.class_id);
-            const taskScores = scores.filter(s => s.task_id === task.id && !s.is_absent);
-            const total = cls?.student_count || 0;
-            const pct = total > 0 ? Math.round(taskScores.length / total * 100) : 0;
-            return (
-              <div className="card" key={task.id}>
-                <div className="card-body">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                        <span style={{ fontWeight: 700, fontSize: 15 }}>{task.title}</span>
-                        <span className={`badge ${task.is_finished ? "badge-green" : "badge-blue"}`}>{task.is_finished ? "✓ 已结束" : "● 进行中"}</span>
-                        <span className="badge badge-gray">{cls?.name}</span>
-                      </div>
-                      {task.description && <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 10 }}>{task.description}</p>}
-                      <div style={{ display: "flex", gap: 20, fontSize: 12, color: "#9ca3af" }}>
-                        <span>📅 {new Date(task.created_at).toLocaleDateString("zh-CN")}</span>
-                        <span>👥 {taskScores.length}/{total} 已登记</span>
-                        <span>💯 基础分: {task.base_score_options?.join(" / ")}</span>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 8, marginLeft: 16 }}>
-                      {!task.is_finished && (
-                        <button className="btn btn-outline btn-sm" onClick={() => setConfirmFinish(task)}>结束登记</button>
-                      )}
-                      <button className="btn btn-ghost btn-sm" style={{ color: "#e02424" }} onClick={() => handleDelete(task.id)}>删除</button>
-                    </div>
-                  </div>
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-                      <span>登记进度</span><span>{pct}%</span>
-                    </div>
-                    <div className="progress-bar"><div className="progress-fill" style={{ width: pct + "%" }} /></div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {showAdd && (
-        <Modal title="发布新任务" onClose={() => setShowAdd(false)}
-          footer={<><button className="btn btn-outline" onClick={() => setShowAdd(false)}>取消</button><button className="btn btn-primary" onClick={handleAdd}>确认发布</button></>}>
-          <div className="form-group">
-            <label className="form-label">班级 *</label>
-            <select className="form-select" value={form.class_id} onChange={e => setForm({ ...form, class_id: e.target.value })}>
-              <option value="">请选择班级</option>
-              {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">任务名称 *</label>
-            <input className="form-input" placeholder="例：店铺首页Banner设计" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">任务说明</label>
-            <textarea className="form-textarea" placeholder="任务具体要求、格式规范等..." value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">基础分选项</label>
-            <input className="form-input" placeholder="100,90,80,70,60" value={form.base_score_options} onChange={e => setForm({ ...form, base_score_options: e.target.value })} />
-            <p className="form-hint">用英文逗号分隔，打分时点选</p>
-          </div>
-        </Modal>
-      )}
-
-      {confirmFinish && (
-        <Modal title="确认结束登记" onClose={() => setConfirmFinish(null)}
-          footer={<><button className="btn btn-outline" onClick={() => setConfirmFinish(null)}>取消</button><button className="btn btn-danger" onClick={() => handleFinish(confirmFinish)}>确认结束，未登记记0分</button></>}>
-          <div className="alert alert-warning">
-            <strong>⚠️ 此操作不可撤销</strong>
-          </div>
-          <p style={{ fontSize: 13, color: "#374151" }}>
-            即将结束任务「{confirmFinish.title}」的登记。<br /><br />
-            未登记的学生将自动记 <strong>0 分</strong>。
-          </p>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-// ============================================================
-// ⭐ 打分页面（核心）
-// ============================================================
-function ScoringPage({ data, toast }) {
-  const { classes, tasks, scores, students, saveScores } = data;
+function ScorePage({ classes, tasks, scores, onScoreUpdate, showToast }) {
   const [selTask, setSelTask] = useState(null);
+  const [students, setStudents] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [viewMode, setViewMode] = useState("grid");
   const [scoringStudent, setScoringStudent] = useState(null);
-  const [baseScore, setBaseScore] = useState(null);
-  const [isLeave, setIsLeave] = useState(false);
-  const [remark, setRemark] = useState("");
-  const [manualCoef, setManualCoef] = useState("");
-  const [searchQ, setSearchQ] = useState("");
-  const [viewMode, setViewMode] = useState("grid"); // grid | list
 
-  const activeTasks = tasks.filter(t => !t.is_finished);
+  useEffect(() => {
+    if (selTask) {
+      const cls = classes.find(c => c.id === selTask.class_id);
+      if (cls) fetchStudents(cls.id);
+    }
+  }, [selTask]);
 
-  const taskStudents = selTask
-    ? students.filter(s => s.class_id === selTask.class_id && s.is_active !== false)
-    : [];
+  async function fetchStudents(classId) {
+    const { data } = await supabase.from("students").select("*").eq("class_id", classId).eq("is_active", true).order("student_no");
+    setStudents(data || []);
+  }
 
   const taskScores = selTask ? scores.filter(s => s.task_id === selTask.id) : [];
-  const scoredStudentIds = taskScores.filter(s => !s.is_absent).map(s => s.student_id);
-  const leaveIds = taskScores.filter(s => s.is_leave).map(s => s.student_id);
 
-  const cls = selTask ? classes.find(c => c.id === selTask.class_id) : null;
-  const classTotal = cls?.student_count || taskStudents.length;
+  const displayStudents = students.filter(st => {
+    const sc = taskScores.find(s => s.student_id === st.id);
+    if (filter === "scored") return !!sc;
+    if (filter === "unscored") return !sc;
+    return true;
+  });
 
-  const filteredStudents = taskStudents.filter(s =>
-    !searchQ || s.full_name.includes(searchQ) || s.student_no.includes(searchQ) || (s.seat_no || "").includes(searchQ)
-  );
+  const tierStats = selTask?.coefficient_config ? (() => {
+    const tiers = selTask.coefficient_config;
+    return tiers.map(tier => {
+      const n = taskScores.filter(s => !s.is_leave && s.coefficient === tier.coef).length;
+      return { ...tier, count: n };
+    });
+  })() : [];
 
-  const currentRank = scoredStudentIds.length + 1;
-  const previewCoef = (() => {
-    const mc = parseFloat(manualCoef);
-    if (!isNaN(mc) && mc > 0 && mc <= 1) return { coef: mc, label: "手动设定" };
-    if (isLeave) return { coef: 1, label: "请假" };
-    return calcCoefficient(currentRank, classTotal, selTask?.coefficient_config || DEFAULT_TIERS);
-  })();
-
-  const previewFinal = baseScore != null
-    ? (isLeave ? 60 : calcFinalScore(baseScore, previewCoef.coef))
-    : null;
-
-  const handleSubmitScore = () => {
-    if (!scoringStudent || baseScore == null) { toast.show("请选择基础分", "error"); return; }
-
-    const mc = parseFloat(manualCoef);
-    const useManual = !isNaN(mc) && mc > 0 && mc <= 1;
-
-    let finalBase = isLeave ? 60 : baseScore;
-    let coef, final;
-
-    if (isLeave) {
-      coef = 1.0; final = 60;
-    } else {
-      coef = useManual ? mc : previewCoef.coef;
-      final = calcFinalScore(baseScore, coef);
-    }
-
-    const existing = scores.find(s => s.task_id === selTask.id && s.student_id === scoringStudent.id);
-    const scoreRecord = {
-      id: existing?.id || uuid(),
-      task_id: selTask.id, student_id: scoringStudent.id,
-      base_score: finalBase, rank_no: isLeave ? null : currentRank,
-      coefficient: coef, final_score: final,
-      is_manual_coef: useManual || isLeave, is_leave: isLeave, is_absent: false,
-      remark: remark.trim(), scored_at: now()
-    };
-
-    let newScores;
-    if (existing) {
-      newScores = scores.map(s => (s.id === existing.id ? scoreRecord : s));
-    } else {
-      newScores = [...scores, scoreRecord];
-    }
-
-    saveScores(newScores);
-    toast.show(`✓ ${scoringStudent.full_name} 登记成功，最终分 ${final}`);
-    setScoringStudent(null);
-    setBaseScore(null);
-    setIsLeave(false);
-    setRemark("");
-    setManualCoef("");
-  };
-
-  const handleUndo = async (studentId) => {
-    saveScores(scores.filter(s => !(s.task_id === selTask.id && s.student_id === studentId)));
-    toast.show("已撤销该学生成绩");
-  };
-
-  const tierLabel = (s) => {
-    if (!s || s.is_leave) return { cls: "tier-2", label: "请假" };
-    if (s.is_absent) return { cls: "tier-3", label: "缺交" };
-    const t = selTask?.coefficient_config || DEFAULT_TIERS;
-    const pct = classTotal > 0 ? (s.rank_no / classTotal) * 100 : 0;
-    if (pct <= t[0].max_percentile) return { cls: "tier-0", label: t[0].label };
-    if (pct <= t[1].max_percentile) return { cls: "tier-1", label: t[1].label };
-    if (pct <= t[2].max_percentile) return { cls: "tier-2", label: t[2].label };
-    return { cls: "tier-3", label: t[3].label };
-  };
+  // 排序任务：进行中的在前
+  const sortedTasks = [...tasks].sort((a, b) => {
+    if (a.is_finished !== b.is_finished) return a.is_finished ? 1 : -1;
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
 
   return (
     <div>
-      {/* 任务选择 */}
-      {!selTask ? (
-        <div>
-          <div className="alert alert-info" style={{ marginBottom: 20 }}>💡 选择一个进行中的任务开始登记成绩</div>
-          {activeTasks.length === 0 ? (
-            <div className="card"><div className="empty"><div className="empty-icon">✅</div><p>当前没有进行中的任务</p></div></div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {activeTasks.map(t => {
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-body">
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">选择要打分的任务</label>
+            <select className="form-select" value={selTask?.id || ""} onChange={e => {
+              const t = tasks.find(t => t.id === e.target.value);
+              setSelTask(t || null);
+            }}>
+              <option value="">— 请选择任务 —</option>
+              {sortedTasks.map(t => {
                 const cls = classes.find(c => c.id === t.class_id);
-                const ts = scores.filter(s => s.task_id === t.id && !s.is_absent);
-                const total = cls?.student_count || 0;
                 return (
-                  <div className="card" key={t.id} style={{ cursor: "pointer" }} onClick={() => setSelTask(t)}>
-                    <div className="card-body" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t.title}</div>
-                        <div style={{ fontSize: 12, color: "#6b7280" }}>{cls?.name} · 已登记 {ts.length}/{total}</div>
-                      </div>
-                      <button className="btn btn-primary">开始打分 →</button>
-                    </div>
-                  </div>
+                  <option key={t.id} value={t.id}>
+                    {t.is_finished ? "[已结束] " : "[进行中] "}
+                    {t.title} — {cls?.name || "?"}
+                  </option>
                 );
               })}
-            </div>
-          )}
+            </select>
+          </div>
         </div>
-      ) : (
-        <div>
-          {/* 顶部信息栏 */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setSelTask(null)}>← 返回</button>
-              <span style={{ fontWeight: 700, fontSize: 15, marginLeft: 8 }}>{selTask.title}</span>
-              <span className="badge badge-gray" style={{ marginLeft: 8 }}>{cls?.name}</span>
+      </div>
+
+      {selTask && (
+        <>
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-header">
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span className="card-title">{selTask.title}</span>
+                {selTask.is_finished
+                  ? <span className="badge badge-yellow">补录模式</span>
+                  : <span className="badge badge-green">进行中</span>
+                }
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className={`btn btn-sm ${viewMode === "grid" ? "btn-primary" : "btn-outline"}`} onClick={() => setViewMode("grid")}>⊞ 宫格</button>
+                <button className={`btn btn-sm ${viewMode === "list" ? "btn-primary" : "btn-outline"}`} onClick={() => setViewMode("list")}>≡ 列表</button>
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 12, color: "#6b7280" }}>
-                已登记 <strong style={{ color: "#1a56db" }}>{scoredStudentIds.length}</strong>/{classTotal}
-              </span>
-              <button className={`btn btn-sm ${viewMode === "grid" ? "btn-primary" : "btn-outline"}`} onClick={() => setViewMode("grid")}>宫格</button>
-              <button className={`btn btn-sm ${viewMode === "list" ? "btn-primary" : "btn-outline"}`} onClick={() => setViewMode("list")}>列表</button>
-            </div>
+            {tierStats.length > 0 && (
+              <div style={{ padding: "10px 20px", display: "flex", gap: 12, flexWrap: "wrap", borderBottom: "1px solid #f3f4f6", background: "#fafafa" }}>
+                {tierStats.map((t, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span className={`coef-tier tier-${i}`}>{t.label}</span>
+                    <span style={{ fontSize: 12, color: "#6b7280" }}>{t.count}人 · ×{t.coef}</span>
+                  </div>
+                ))}
+                <span style={{ fontSize: 12, color: "#9ca3af" }}>已登记：{taskScores.length}/{students.length}</span>
+              </div>
+            )}
           </div>
 
-          {/* 搜索 */}
-          <div style={{ marginBottom: 16 }}>
-            <input className="form-input" placeholder="🔍 搜索姓名、学号、座位号..." value={searchQ} onChange={e => setSearchQ(e.target.value)} style={{ maxWidth: 280 }} />
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {[["all", "全部"], ["unscored", "未登记"], ["scored", "已登记"]].map(([v, l]) => (
+              <button key={v} className={`btn btn-sm ${filter === v ? "btn-primary" : "btn-outline"}`} onClick={() => setFilter(v)}>{l}</button>
+            ))}
           </div>
 
-          {/* 统计条 */}
-          <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-            {(selTask.coefficient_config || DEFAULT_TIERS).map((tier, i) => {
-              const count = taskScores.filter(s => {
-                if (!s.rank_no) return false;
-                const pct = (s.rank_no / classTotal) * 100;
-                const prev = i > 0 ? (selTask.coefficient_config || DEFAULT_TIERS)[i - 1].max_percentile : 0;
-                return pct > prev && pct <= tier.max_percentile;
-              }).length;
-              return (
-                <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", background: "white", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 16px", minWidth: 80 }}>
-                  <span style={{ fontSize: 20, fontWeight: 700 }}>{count}</span>
-                  <span style={{ fontSize: 11, color: "#6b7280" }}>{tier.label}</span>
-                  <span style={{ fontSize: 11, color: "#9ca3af" }}>×{tier.coef.toFixed(2)}</span>
-                </div>
-              );
-            })}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", background: "white", border: "1px solid #e5e7eb", borderRadius: 8, padding: "8px 16px", minWidth: 80 }}>
-              <span style={{ fontSize: 20, fontWeight: 700, color: "#e02424" }}>{taskStudents.length - scoredStudentIds.length - leaveIds.length}</span>
-              <span style={{ fontSize: 11, color: "#6b7280" }}>未登记</span>
-            </div>
-          </div>
-
-          {/* 学生视图 */}
           {viewMode === "grid" ? (
             <div className="student-grid">
-              {filteredStudents.map(s => {
-                const sc = taskScores.find(sc => sc.student_id === s.id);
-                const scored = sc && !sc.is_absent;
-                const leave = sc?.is_leave;
+              {displayStudents.map(st => {
+                const sc = taskScores.find(s => s.student_id === st.id);
+                const cls = sc?.is_leave ? "leave" : sc ? "scored" : "";
                 return (
-                  <div
-                    key={s.id}
-                    className={`student-card ${scored ? (leave ? "leave" : "scored") : ""}`}
-                    onClick={() => { setScoringStudent(s); setBaseScore(null); setIsLeave(leave || false); setRemark(sc?.remark || ""); setManualCoef(sc?.is_manual_coef && !leave ? sc.coefficient.toString() : ""); }}
-                  >
-                    <div className="check">
-                      {scored ? (leave ? "🟡" : "✅") : ""}
-                    </div>
-                    <div className="sname">{s.full_name}</div>
-                    <div className="sno">{s.student_no}</div>
-                    {s.seat_no && <div className="sseat">📍{s.seat_no}</div>}
-                    {scored && !sc.is_absent && (
+                  <div key={st.id} className={`student-card ${cls}`} onClick={() => setScoringStudent(st)}>
+                    {sc && <span className="check">{sc.is_leave ? "🟡" : "✅"}</span>}
+                    <div className="sname">{st.full_name}</div>
+                    <div className="sno">{st.student_no}</div>
+                    {st.seat_no && <div className="sseat">座位 {st.seat_no}</div>}
+                    {sc && (
                       <>
-                        <div className="sscore">{sc.final_score}</div>
-                        <div className="srank">第 {sc.rank_no || "—"} 位登记</div>
+                        <div className="sscore">{sc.final_score}分</div>
+                        <div className="srank">第{sc.rank_no}个登记 · ×{sc.coefficient}</div>
                       </>
                     )}
-                    {sc?.is_absent && <div style={{ fontSize: 12, color: "#e02424", marginTop: 6 }}>缺交 0分</div>}
                   </div>
                 );
               })}
@@ -664,38 +323,21 @@ function ScoringPage({ data, toast }) {
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr>
-                      <th>学号</th><th>姓名</th><th>座位</th><th>状态</th>
-                      <th>登记顺序</th><th>基础分</th><th>系数</th><th>最终分</th><th>操作</th>
-                    </tr>
+                    <tr><th>学号</th><th>姓名</th><th>基础分</th><th>第几名</th><th>系数</th><th>最终分</th><th>状态</th><th>操作</th></tr>
                   </thead>
                   <tbody>
-                    {filteredStudents.map(s => {
-                      const sc = taskScores.find(sc => sc.student_id === s.id);
-                      const t = sc ? tierLabel(sc) : null;
+                    {displayStudents.map(st => {
+                      const sc = taskScores.find(s => s.student_id === st.id);
                       return (
-                        <tr key={s.id}>
-                          <td>{s.student_no}</td>
-                          <td style={{ fontWeight: 500 }}>{s.full_name}</td>
-                          <td>{s.seat_no || "—"}</td>
-                          <td>
-                            {sc ? (
-                              sc.is_absent ? <span className="badge badge-red">缺交</span>
-                                : sc.is_leave ? <span className="badge badge-yellow">请假</span>
-                                : <span className={`coef-tier ${t.cls}`}>{t.label}</span>
-                            ) : <span className="badge badge-gray">未登记</span>}
-                          </td>
-                          <td>{sc?.rank_no || "—"}</td>
-                          <td>{sc && !sc.is_absent ? sc.base_score : "—"}</td>
-                          <td>{sc && !sc.is_absent ? "×" + sc.coefficient.toFixed(2) : "—"}</td>
-                          <td style={{ fontWeight: 700, color: sc && !sc.is_absent ? "#057a55" : "#9ca3af" }}>
-                            {sc ? sc.final_score : "—"}
-                          </td>
-                          <td>
-                            <button className="btn btn-outline btn-sm" onClick={() => { setScoringStudent(s); setBaseScore(null); setIsLeave(sc?.is_leave || false); setRemark(sc?.remark || ""); setManualCoef(sc?.is_manual_coef && !sc?.is_leave ? sc.coefficient.toString() : ""); }}>
-                              {sc && !sc.is_absent ? "修改" : "打分"}
-                            </button>
-                          </td>
+                        <tr key={st.id}>
+                          <td>{st.student_no}</td>
+                          <td>{st.full_name}</td>
+                          <td>{sc ? sc.base_score : "—"}</td>
+                          <td>{sc ? `第${sc.rank_no}` : "—"}</td>
+                          <td>{sc ? `×${sc.coefficient}` : "—"}</td>
+                          <td style={{ fontWeight: 700, color: sc ? "#057a55" : "#9ca3af" }}>{sc ? sc.final_score : "—"}</td>
+                          <td>{sc ? (sc.is_leave ? <span className="badge badge-yellow">请假</span> : <span className="badge badge-green">已登记</span>) : <span className="badge badge-gray">未登记</span>}</td>
+                          <td><button className="btn btn-ghost btn-sm" onClick={() => setScoringStudent(st)}>📝 {sc ? "修改" : "打分"}</button></td>
                         </tr>
                       );
                     })}
@@ -704,91 +346,224 @@ function ScoringPage({ data, toast }) {
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
 
-      {/* 打分弹窗 */}
-      {scoringStudent && (
-        <Modal
-          title={`登记成绩 — ${scoringStudent.full_name}`}
-          onClose={() => { setScoringStudent(null); setBaseScore(null); setIsLeave(false); setRemark(""); setManualCoef(""); }}
-          footer={
-            <>
-              {scores.find(s => s.task_id === selTask?.id && s.student_id === scoringStudent.id && !s.is_absent) && (
-                <button className="btn btn-ghost btn-sm" style={{ color: "#e02424", marginRight: "auto" }}
-                  onClick={() => { handleUndo(scoringStudent.id); setScoringStudent(null); }}>撤销成绩</button>
-              )}
-              <button className="btn btn-outline" onClick={() => { setScoringStudent(null); setBaseScore(null); setIsLeave(false); setRemark(""); setManualCoef(""); }}>取消</button>
-              <button className="btn btn-success" onClick={handleSubmitScore} disabled={!isLeave && baseScore == null}>
-                ✓ 确认登记
-              </button>
-            </>
-          }
-        >
-          <div style={{ background: "#f9fafb", borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6b7280" }}>
-              <span>学号：{scoringStudent.student_no}</span>
-              {scoringStudent.seat_no && <span>座位：{scoringStudent.seat_no}</span>}
-              <span>当前第 {currentRank} 位</span>
-            </div>
-          </div>
+      {scoringStudent && selTask && (
+        <ScoreModal
+          student={scoringStudent}
+          task={selTask}
+          existingScore={taskScores.find(s => s.student_id === scoringStudent.id)}
+          allScores={taskScores}
+          classTotal={students.length}
+          onClose={() => setScoringStudent(null)}
+          onSave={async (data) => {
+            await onScoreUpdate(selTask, scoringStudent, data);
+            setScoringStudent(null);
+          }}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  );
+}
 
-          {/* 请假开关 */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: "10px 14px", background: isLeave ? "#fffbeb" : "#f9fafb", borderRadius: 8, border: `1px solid ${isLeave ? "#f59e0b" : "#e5e7eb"}` }}>
-            <input type="checkbox" id="leave" checked={isLeave} onChange={e => { setIsLeave(e.target.checked); if (e.target.checked) { setBaseScore(60); setManualCoef(""); } else setBaseScore(null); }} style={{ width: 16, height: 16, cursor: "pointer" }} />
-            <label htmlFor="leave" style={{ fontSize: 13, fontWeight: 500, cursor: "pointer", color: isLeave ? "#92400e" : "#374151" }}>
-              🟡 请假（自动记 60 分，不参与排名）
-            </label>
-          </div>
+// ============================================================
+// 打分弹窗
+// ============================================================
+function ScoreModal({ student, task, existingScore, allScores, classTotal, onClose, onSave, showToast }) {
+  const [baseScore, setBaseScore] = useState(existingScore?.base_score || null);
+  const [isLeave, setIsLeave] = useState(existingScore?.is_leave || false);
+  const [manualCoef, setManualCoef] = useState(existingScore?.is_manual_coef ? existingScore.coefficient : "");
+  const [useManual, setUseManual] = useState(existingScore?.is_manual_coef || false);
+  const [saving, setSaving] = useState(false);
 
-          {!isLeave && (
-            <>
-              <div className="form-group">
-                <label className="form-label">基础分 *</label>
-                <div className="score-options">
-                  {(selTask?.base_score_options || [100, 90, 80, 70, 60]).map(opt => (
-                    <button key={opt} className={`score-opt ${baseScore === opt ? "selected" : ""}`} onClick={() => setBaseScore(opt)}>
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              </div>
+  const baseOptions = task.base_score_options || [100, 90, 80, 70, 60];
+  const tiers = task.coefficient_config || DEFAULT_TIERS;
 
-              <div className="form-group">
-                <label className="form-label">手动覆盖系数（选填，0~1之间）</label>
-                <input className="form-input" type="number" min="0" max="1" step="0.01" placeholder="默认按顺序自动计算" value={manualCoef} onChange={e => setManualCoef(e.target.value)} />
-                <p className="form-hint">留空则自动计算，填写后会记录为手动覆盖</p>
-              </div>
-            </>
-          )}
+  // 预计排名
+  const currentRank = existingScore
+    ? existingScore.rank_no
+    : allScores.filter(s => !s.is_leave).length + 1;
 
-          {/* 预览 */}
-          <div style={{ background: "#f0fdf4", border: "1px solid #a7f3d0", borderRadius: 10, padding: "14px 18px", marginBottom: 16 }}>
-            <div style={{ fontSize: 12, color: "#065f46", marginBottom: 8, fontWeight: 600 }}>📊 预览计算结果</div>
-            <div style={{ display: "flex", gap: 24, alignItems: "center" }}>
-              <div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>基础分</div>
-                <div style={{ fontSize: 22, fontWeight: 700 }}>{isLeave ? 60 : (baseScore ?? "—")}</div>
-              </div>
-              {!isLeave && <div style={{ color: "#9ca3af", fontSize: 18 }}>×</div>}
-              {!isLeave && (
-                <div>
-                  <div style={{ fontSize: 11, color: "#6b7280" }}>系数</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: "#1a56db" }}>{previewCoef.coef.toFixed(2)}</div>
-                  <div style={{ fontSize: 11, color: "#6b7280" }}>{previewCoef.label}</div>
-                </div>
-              )}
-              {!isLeave && <div style={{ color: "#9ca3af", fontSize: 18 }}>=</div>}
-              <div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>最终分</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: "#057a55" }}>{previewFinal ?? (isLeave ? 60 : "—")}</div>
+  const previewCoef = useManual && manualCoef ? parseFloat(manualCoef) : (isLeave ? null : calcCoefficient(currentRank, classTotal, tiers).coef);
+  const previewLabel = useManual ? "手动覆盖" : (isLeave ? "请假" : calcCoefficient(currentRank, classTotal, tiers).label);
+  const previewFinal = isLeave ? 60 : (baseScore && previewCoef ? calcFinalScore(baseScore, previewCoef) : null);
+
+  async function handleSave() {
+    if (!isLeave && baseScore === null) { showToast("请选择基础分", "error"); return; }
+    setSaving(true);
+    await onSave({ baseScore: isLeave ? 60 : baseScore, isLeave, manualCoef: useManual ? parseFloat(manualCoef) : undefined, rankNo: currentRank });
+    setSaving(false);
+  }
+
+  return (
+    <Modal title={`打分：${student.full_name}（${student.student_no}）`} onClose={onClose}>
+      <div className="modal-body">
+        {isLeave ? (
+          <div className="alert alert-warning">请假登记：固定60分，不占排名序号</div>
+        ) : (
+          <>
+            <div className="form-group">
+              <label className="form-label">基础分</label>
+              <div className="score-options">
+                {baseOptions.map(s => (
+                  <button key={s} className={`score-opt ${baseScore === s ? "selected" : ""}`} onClick={() => setBaseScore(s)}>{s}</button>
+                ))}
               </div>
             </div>
-          </div>
+            <div className="form-group">
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={useManual} onChange={e => setUseManual(e.target.checked)} />
+                手动覆盖系数
+              </label>
+              {useManual && (
+                <input type="number" min="0" max="2" step="0.01" className="form-input" style={{ marginTop: 8, width: 120 }}
+                  value={manualCoef} onChange={e => setManualCoef(e.target.value)} placeholder="如 0.95" />
+              )}
+            </div>
+          </>
+        )}
 
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">备注（选填）</label>
-            <input className="form-input" placeholder="如：未完成关键步骤 / 格式错误" value={remark} onChange={e => setRemark(e.target.value)} />
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 16 }}>
+          <input type="checkbox" checked={isLeave} onChange={e => setIsLeave(e.target.checked)} />
+          本次请假（固定60分，不占排名）
+        </label>
+
+        <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, padding: 16 }}>
+          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>预览</div>
+          <div style={{ display: "flex", gap: 20 }}>
+            <div><div style={{ fontSize: 11, color: "#9ca3af" }}>排名序号</div><div style={{ fontSize: 18, fontWeight: 700 }}>第{currentRank}个</div></div>
+            <div><div style={{ fontSize: 11, color: "#9ca3af" }}>档位</div><div style={{ fontSize: 13, fontWeight: 600, color: "#6d28d9" }}>{previewLabel}</div></div>
+            <div><div style={{ fontSize: 11, color: "#9ca3af" }}>系数</div><div style={{ fontSize: 18, fontWeight: 700 }}>×{isLeave ? "—" : (previewCoef?.toFixed(2) || "—")}</div></div>
+            <div><div style={{ fontSize: 11, color: "#9ca3af" }}>最终分</div><div style={{ fontSize: 24, fontWeight: 700, color: "#057a55" }}>{previewFinal ?? "—"}</div></div>
+          </div>
+        </div>
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-outline" onClick={onClose}>取消</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? "保存中..." : "确认登记"}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ============================================================
+// 任务管理
+// ============================================================
+function TaskPage({ classes, tasks, scores, onRefresh, showToast }) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [editingTiers, setEditingTiers] = useState(null); // task
+  const [delTask, setDelTask] = useState(null);
+
+  async function handleFinish(task) {
+    if (!confirm(`结束「${task.title}」登记？未登记的学生将自动记0分。`)) return;
+    // 先获取该班所有学生
+    const { data: studs } = await supabase.from("students").select("*").eq("class_id", task.class_id).eq("is_active", true);
+    const taskScores = scores.filter(s => s.task_id === task.id);
+    const unscored = (studs || []).filter(s => !taskScores.find(sc => sc.student_id === s.id));
+    if (unscored.length > 0) {
+      const inserts = unscored.map(st => ({
+        task_id: task.id, student_id: st.id, class_id: task.class_id,
+        base_score: 0, rank_no: 9999, coefficient: 0, final_score: 0,
+        is_leave: false, is_absent: true,
+      }));
+      await supabase.from("scores").insert(inserts);
+    }
+    await supabase.from("tasks").update({ is_finished: true }).eq("id", task.id);
+    showToast(`已结束，${unscored.length}名学生自动记0分`, "success");
+    onRefresh();
+  }
+
+  async function handleReopen(task) {
+    await supabase.from("tasks").update({ is_finished: false }).eq("id", task.id);
+    showToast("已重新开放，可继续补录", "success");
+    onRefresh();
+  }
+
+  async function handleDelete(task) {
+    await supabase.from("tasks").delete().eq("id", task.id);
+    showToast("任务已删除", "success");
+    setDelTask(null);
+    onRefresh();
+  }
+
+  const sortedTasks = [...tasks].sort((a, b) => {
+    if (a.is_finished !== b.is_finished) return a.is_finished ? 1 : -1;
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>＋ 发布新任务</button>
+      </div>
+
+      {sortedTasks.length === 0 ? (
+        <div className="card"><div className="empty"><div className="empty-icon">📋</div><p>还没有任务，点击「发布新任务」开始</p></div></div>
+      ) : sortedTasks.map(task => {
+        const cls = classes.find(c => c.id === task.class_id);
+        const taskScores = scores.filter(s => s.task_id === task.id && !s.is_absent);
+        const total = cls?.student_count || 0;
+        const pct = total ? Math.round((taskScores.length / total) * 100) : 0;
+        const tiers = task.coefficient_config || DEFAULT_TIERS;
+
+        return (
+          <div className="card" key={task.id} style={{ marginBottom: 12 }}>
+            <div className="card-header">
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="card-title">{task.title}</span>
+                  {task.is_finished
+                    ? <span className="badge badge-gray">已结束</span>
+                    : <span className="badge badge-green">进行中</span>
+                  }
+                </div>
+                <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>
+                  {cls?.name} · 已登记 {taskScores.length}/{total} 人
+                  {task.description && ` · ${task.description}`}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn btn-outline btn-sm" onClick={() => setEditingTiers(task)}>⚙ 系数</button>
+                {!task.is_finished
+                  ? <button className="btn btn-outline btn-sm" onClick={() => handleFinish(task)}>🔒 结束登记</button>
+                  : <button className="btn btn-outline btn-sm" onClick={() => handleReopen(task)}>🔓 重新开放</button>
+                }
+                <button className="btn btn-danger btn-sm" onClick={() => setDelTask(task)}>删除</button>
+              </div>
+            </div>
+            <div style={{ padding: "10px 20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#9ca3af", marginBottom: 4 }}>
+                <span>打分进度</span><span>{pct}%</span>
+              </div>
+              <div className="progress-bar"><div className="progress-fill" style={{ width: `${pct}%` }} /></div>
+              <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {tiers.map((t, i) => (
+                  <span key={i} className={`coef-tier tier-${i}`}>{t.label}×{t.coef}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {showCreate && (
+        <CreateTaskModal classes={classes} onClose={() => setShowCreate(false)} onSave={async () => { setShowCreate(false); onRefresh(); }} showToast={showToast} />
+      )}
+
+      {editingTiers && (
+        <EditTiersModal task={editingTiers} onClose={() => setEditingTiers(null)} onSave={async () => { setEditingTiers(null); onRefresh(); }} showToast={showToast} />
+      )}
+
+      {delTask && (
+        <Modal title="确认删除" onClose={() => setDelTask(null)}>
+          <div className="modal-body">
+            <p>确定删除任务「{delTask.title}」？所有相关成绩将一并删除，此操作不可撤销。</p>
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-outline" onClick={() => setDelTask(null)}>取消</button>
+            <button className="btn btn-danger" onClick={() => handleDelete(delTask)}>确认删除</button>
           </div>
         </Modal>
       )}
@@ -797,131 +572,269 @@ function ScoringPage({ data, toast }) {
 }
 
 // ============================================================
+// 发布任务弹窗
+// ============================================================
+function CreateTaskModal({ classes, onClose, onSave, showToast }) {
+  const [title, setTitle] = useState("");
+  const [desc, setDesc] = useState("");
+  const [classId, setClassId] = useState("");
+  const [baseOpts, setBaseOpts] = useState("100,90,80,70,60");
+  const [tiers, setTiers] = useState(JSON.parse(JSON.stringify(DEFAULT_TIERS)));
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!title.trim()) { showToast("请填写任务名称", "error"); return; }
+    if (!classId) { showToast("请选择班级", "error"); return; }
+    setSaving(true);
+    const opts = baseOpts.split(",").map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+    const { error } = await supabase.from("tasks").insert({
+      title: title.trim(), description: desc.trim() || null,
+      class_id: classId,
+      base_score_options: opts,
+      coefficient_config: tiers,
+      is_finished: false,
+    });
+    if (error) { showToast("保存失败：" + error.message, "error"); setSaving(false); return; }
+    showToast("任务发布成功", "success");
+    onSave();
+  }
+
+  return (
+    <Modal title="发布新任务" onClose={onClose} size="modal-lg">
+      <div className="modal-body">
+        <div className="form-group">
+          <label className="form-label">任务名称 *</label>
+          <input className="form-input" value={title} onChange={e => setTitle(e.target.value)} placeholder="如：淘宝首页设计实训" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">班级 *</label>
+          <select className="form-select" value={classId} onChange={e => setClassId(e.target.value)}>
+            <option value="">— 选择班级 —</option>
+            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label className="form-label">任务说明</label>
+          <textarea className="form-textarea" value={desc} onChange={e => setDesc(e.target.value)} placeholder="可选" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">基础分选项（逗号分隔）</label>
+          <input className="form-input" value={baseOpts} onChange={e => setBaseOpts(e.target.value)} placeholder="100,90,80,70,60" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">本任务系数档位设置</label>
+          <TierEditor tiers={tiers} onChange={setTiers} />
+        </div>
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-outline" onClick={onClose}>取消</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? "发布中..." : "发布任务"}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ============================================================
+// 编辑系数弹窗
+// ============================================================
+function EditTiersModal({ task, onClose, onSave, showToast }) {
+  const [tiers, setTiers] = useState(JSON.parse(JSON.stringify(task.coefficient_config || DEFAULT_TIERS)));
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    const { error } = await supabase.from("tasks").update({ coefficient_config: tiers }).eq("id", task.id);
+    if (error) { showToast("保存失败", "error"); setSaving(false); return; }
+    showToast("系数更新成功", "success");
+    onSave();
+  }
+
+  return (
+    <Modal title={`编辑系数：${task.title}`} onClose={onClose}>
+      <div className="modal-body">
+        <div className="alert alert-info" style={{ marginBottom: 16 }}>修改系数不影响已登记的成绩，仅对后续新登记生效。</div>
+        <TierEditor tiers={tiers} onChange={setTiers} />
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-outline" onClick={onClose}>取消</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? "保存中..." : "保存"}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ============================================================
 // 成绩查询
 // ============================================================
-function ScoreView({ data, toast }) {
-  const { classes, tasks, scores, students } = data;
+function ScoreQueryPage({ classes, tasks, scores, showToast }) {
   const [selClass, setSelClass] = useState("");
-  const [selTask, setSelTask] = useState("");
+  const [selTask, setSelTask] = useState("all");
+  const [studs, setStuds] = useState([]);
 
-  const classTasks = selClass ? tasks.filter(t => t.class_id === selClass) : [];
-  const task = tasks.find(t => t.id === selTask);
-  const cls = classes.find(c => c.id === selClass);
+  useEffect(() => {
+    if (selClass) {
+      supabase.from("students").select("*").eq("class_id", selClass).eq("is_active", true).order("student_no")
+        .then(({ data }) => setStuds(data || []));
+    } else {
+      setStuds([]);
+    }
+  }, [selClass]);
 
-  const taskStudents = task ? students.filter(s => s.class_id === task.class_id && s.is_active !== false) : [];
-  const taskScores = task ? scores.filter(s => s.task_id === task.id) : [];
+  const classTasks = tasks.filter(t => t.class_id === selClass);
+  const classScores = scores.filter(s => s.class_id === selClass);
 
-  const displayRows = taskStudents.map(s => {
-    const sc = taskScores.find(sc => sc.student_id === s.id);
-    return { student: s, score: sc };
-  }).sort((a, b) => {
-    if (!a.score && !b.score) return a.student.student_no.localeCompare(b.student.student_no);
-    if (!a.score) return 1;
-    if (!b.score) return -1;
-    return (b.score.final_score || 0) - (a.score.final_score || 0);
-  });
+  function exportAll() {
+    if (!studs.length) return;
+    const headers = ["学号", "姓名", ...classTasks.map(t => t.title + "_最终分"), "平均分"];
+    const rows = studs.map(st => {
+      const stScores = classTasks.map(t => {
+        const sc = classScores.find(s => s.student_id === st.id && s.task_id === t.id);
+        return sc ? sc.final_score : "";
+      });
+      const valid = stScores.filter(s => s !== "");
+      const avg = valid.length ? (valid.reduce((a, b) => a + b, 0) / valid.length).toFixed(1) : "";
+      return [st.student_no, st.full_name, ...stScores, avg];
+    });
+    exportCSV([headers, ...rows], `${classes.find(c => c.id === selClass)?.name}_全班成绩汇总.csv`);
+    showToast("导出成功", "success");
+  }
 
-  const avg = taskScores.filter(s => !s.is_absent).length > 0
-    ? (taskScores.filter(s => !s.is_absent).reduce((a, s) => a + s.final_score, 0) / taskScores.filter(s => !s.is_absent).length).toFixed(1)
-    : "—";
-
-  const handleExport = () => {
-    if (!task || displayRows.length === 0) { toast.show("无数据可导出", "error"); return; }
-    const header = "学号,姓名,座位,状态,登记顺序,基础分,系数,最终分,备注\n";
-    const rows = displayRows.map(({ student: s, score: sc }) => {
-      if (!sc) return `${s.student_no},${s.full_name},${s.seat_no || ""},未登记,,,,0,`;
-      if (sc.is_absent) return `${s.student_no},${s.full_name},${s.seat_no || ""},缺交,,,,0,`;
-      if (sc.is_leave) return `${s.student_no},${s.full_name},${s.seat_no || ""},请假,,60,1.00,60,${sc.remark || ""}`;
-      return `${s.student_no},${s.full_name},${s.seat_no || ""},已登记,${sc.rank_no},${sc.base_score},${sc.coefficient.toFixed(2)},${sc.final_score},${sc.remark || ""}`;
-    }).join("\n");
-    const blob = new Blob(["\uFEFF" + header + rows], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `${cls?.name}_${task.title}_成绩.csv`;
-    a.click(); URL.revokeObjectURL(url);
-    toast.show("导出成功 📥");
-  };
+  function exportSingle() {
+    if (selTask === "all") return;
+    const task = tasks.find(t => t.id === selTask);
+    if (!task || !studs.length) return;
+    const headers = ["学号", "姓名", "基础分", "排名序号", "档位系数", "最终分", "备注"];
+    const rows = studs.map(st => {
+      const sc = classScores.find(s => s.student_id === st.id && s.task_id === selTask);
+      if (!sc) return [st.student_no, st.full_name, "未登记", "", "", "", ""];
+      return [st.student_no, st.full_name, sc.base_score, sc.rank_no, sc.coefficient, sc.final_score, sc.is_leave ? "请假" : (sc.is_absent ? "缺席" : "")];
+    });
+    exportCSV([headers, ...rows], `${classes.find(c => c.id === selClass)?.name}_${task.title}.csv`);
+    showToast("导出成功", "success");
+  }
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-        <select className="form-select" style={{ maxWidth: 180 }} value={selClass} onChange={e => { setSelClass(e.target.value); setSelTask(""); }}>
-          <option value="">选择班级</option>
-          {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select className="form-select" style={{ maxWidth: 240 }} value={selTask} onChange={e => setSelTask(e.target.value)} disabled={!selClass}>
-          <option value="">选择任务</option>
-          {classTasks.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
-        </select>
-        {selTask && (
-          <button className="btn btn-outline" onClick={handleExport}>📥 导出 CSV</button>
-        )}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-body">
+          <div className="grid-2">
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">选择班级</label>
+              <select className="form-select" value={selClass} onChange={e => { setSelClass(e.target.value); setSelTask("all"); }}>
+                <option value="">— 选择班级 —</option>
+                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">查看范围</label>
+              <select className="form-select" value={selTask} onChange={e => setSelTask(e.target.value)} disabled={!selClass}>
+                <option value="all">📊 全班汇总（所有任务）</option>
+                {classTasks.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {!selTask ? (
-        <div className="card"><div className="empty"><div className="empty-icon">📊</div><p>请选择班级和任务查看成绩</p></div></div>
-      ) : (
+      {selClass && (
         <>
-          {/* 统计卡片 */}
-          <div className="grid-4" style={{ marginBottom: 20 }}>
-            <div className="stat-card">
-              <div className="stat-label">班级人数</div>
-              <div className="stat-value">{taskStudents.length}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">已登记</div>
-              <div className="stat-value" style={{ color: "#057a55" }}>{taskScores.filter(s => !s.is_absent).length}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">平均分</div>
-              <div className="stat-value" style={{ color: "#1a56db" }}>{avg}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">缺交</div>
-              <div className="stat-value" style={{ color: "#e02424" }}>{taskScores.filter(s => s.is_absent).length + taskStudents.length - taskScores.length}</div>
-            </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
+            <button className="btn btn-success btn-sm" onClick={exportAll}>⬇ 导出全班汇总CSV</button>
+            {selTask !== "all" && <button className="btn btn-outline btn-sm" onClick={exportSingle}>⬇ 导出当前任务CSV</button>}
           </div>
 
-          <div className="card">
-            <div className="card-header">
-              <span className="card-title">{task?.title} — 成绩详情</span>
-              <span className={`badge ${task?.is_finished ? "badge-green" : "badge-blue"}`}>{task?.is_finished ? "已结束" : "进行中"}</span>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr><th>排名</th><th>学号</th><th>姓名</th><th>座位</th><th>状态</th><th>登记顺序</th><th>基础分</th><th>系数</th><th>最终分</th><th>备注</th></tr>
-                </thead>
-                <tbody>
-                  {displayRows.map(({ student: s, score: sc }, i) => (
-                    <tr key={s.id}>
-                      <td style={{ fontWeight: 700, color: i < 3 ? "#c27803" : "#9ca3af" }}>
-                        {sc && !sc.is_absent && !sc.is_leave ? i + 1 : "—"}
-                      </td>
-                      <td>{s.student_no}</td>
-                      <td style={{ fontWeight: 500 }}>{s.full_name}</td>
-                      <td>{s.seat_no || "—"}</td>
-                      <td>
-                        {!sc ? <span className="badge badge-gray">未登记</span>
-                          : sc.is_absent ? <span className="badge badge-red">缺交</span>
-                          : sc.is_leave ? <span className="badge badge-yellow">请假</span>
-                          : <span className="badge badge-green">已登记</span>}
-                      </td>
-                      <td>{sc?.rank_no || "—"}</td>
-                      <td>{sc && !sc.is_absent ? sc.base_score : "—"}</td>
-                      <td>{sc && !sc.is_absent ? "×" + sc.coefficient.toFixed(2) : "—"}</td>
-                      <td style={{ fontWeight: 700, fontSize: 15, color: sc?.final_score > 0 ? "#057a55" : "#9ca3af" }}>
-                        {sc?.final_score != null ? sc.final_score : "—"}
-                      </td>
-                      <td style={{ color: "#9ca3af", fontSize: 12 }}>{sc?.remark || ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {selTask === "all" ? (
+            <AllScoreTable studs={studs} tasks={classTasks} scores={classScores} />
+          ) : (
+            <SingleTaskTable task={tasks.find(t => t.id === selTask)} studs={studs} scores={classScores} />
+          )}
         </>
       )}
+
+      {!selClass && <div className="card"><div className="empty"><div className="empty-icon">📊</div><p>请选择班级查看成绩</p></div></div>}
+    </div>
+  );
+}
+
+function AllScoreTable({ studs, tasks, scores }) {
+  if (!tasks.length) return <div className="card"><div className="empty"><p>该班级暂无任务</p></div></div>;
+
+  const rows = studs.map(st => {
+    const stScores = tasks.map(t => scores.find(s => s.student_id === st.id && s.task_id === t.id));
+    const valid = stScores.filter(s => s && !s.is_absent).map(s => s.final_score);
+    const avg = valid.length ? (valid.reduce((a, b) => a + b, 0) / valid.length).toFixed(1) : null;
+    return { st, stScores, avg };
+  }).sort((a, b) => (parseFloat(b.avg) || 0) - (parseFloat(a.avg) || 0));
+
+  return (
+    <div className="card">
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>排名</th><th>学号</th><th>姓名</th>
+              {tasks.map(t => <th key={t.id} style={{ maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.title}>{t.title}</th>)}
+              <th>平均分</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ st, stScores, avg }, idx) => (
+              <tr key={st.id}>
+                <td style={{ fontWeight: 700, color: idx < 3 ? "#c27803" : "#9ca3af" }}>#{idx + 1}</td>
+                <td>{st.student_no}</td>
+                <td>{st.full_name}</td>
+                {stScores.map((sc, i) => (
+                  <td key={i} style={{ textAlign: "center" }}>
+                    {sc ? (sc.is_absent ? <span className="badge badge-gray">0</span> : sc.is_leave ? <span className="badge badge-yellow">假/60</span> : <span style={{ fontWeight: 600 }}>{sc.final_score}</span>) : <span style={{ color: "#d1d5db" }}>—</span>}
+                  </td>
+                ))}
+                <td style={{ fontWeight: 700, color: "#1a56db" }}>{avg ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SingleTaskTable({ task, studs, scores }) {
+  if (!task) return null;
+  const taskScores = scores.filter(s => s.task_id === task.id);
+  const sortedStuds = [...studs].sort((a, b) => {
+    const sa = taskScores.find(s => s.student_id === a.id);
+    const sb = taskScores.find(s => s.student_id === b.id);
+    if (!sa && !sb) return 0;
+    if (!sa) return 1;
+    if (!sb) return -1;
+    return (sb.final_score || 0) - (sa.final_score || 0);
+  });
+
+  return (
+    <div className="card">
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>学号</th><th>姓名</th><th>登记序号</th><th>基础分</th><th>系数</th><th>最终分</th><th>状态</th></tr>
+          </thead>
+          <tbody>
+            {sortedStuds.map(st => {
+              const sc = taskScores.find(s => s.student_id === st.id);
+              return (
+                <tr key={st.id}>
+                  <td>{st.student_no}</td>
+                  <td>{st.full_name}</td>
+                  <td>{sc && !sc.is_absent ? `第${sc.rank_no}个` : "—"}</td>
+                  <td>{sc ? sc.base_score : "—"}</td>
+                  <td>{sc && !sc.is_absent ? `×${sc.coefficient}` : "—"}</td>
+                  <td style={{ fontWeight: 700, color: sc ? "#057a55" : "#9ca3af" }}>{sc ? sc.final_score : "未登记"}</td>
+                  <td>{!sc ? <span className="badge badge-gray">未登记</span> : sc.is_absent ? <span className="badge badge-red">缺席0分</span> : sc.is_leave ? <span className="badge badge-yellow">请假60分</span> : <span className="badge badge-green">已登记</span>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -929,84 +842,71 @@ function ScoreView({ data, toast }) {
 // ============================================================
 // 数据管理
 // ============================================================
-function DataManager({ data, toast }) {
-  const { classes, students, saveClasses, saveStudents } = data;
-  const [tab, setTab] = useState("classes");
+function DataPage({ classes, onRefresh, showToast }) {
+  const [tab, setTab] = useState("class");
+  const [selClass, setSelClass] = useState("");
+  const [students, setStudents] = useState([]);
   const [showAddClass, setShowAddClass] = useState(false);
   const [showAddStudent, setShowAddStudent] = useState(false);
-  const [classForm, setClassForm] = useState({ name: "", grade: "" });
-  const [studentForm, setStudentForm] = useState({ class_id: "", student_no: "", full_name: "", seat_no: "" });
-  const [batchText, setBatchText] = useState("");
-  const [showBatch, setShowBatch] = useState(false);
-  const [filterClass, setFilterClass] = useState("");
+  const [bulkText, setBulkText] = useState("");
+  const [showBulk, setShowBulk] = useState(false);
 
-  const handleAddClass = () => {
-    if (!classForm.name.trim()) { toast.show("请填写班级名称", "error"); return; }
-    const nc = { id: uuid(), name: classForm.name.trim(), grade: classForm.grade.trim(), student_count: 0, created_at: now() };
-    saveClasses([...classes, nc]);
-    setShowAddClass(false); setClassForm({ name: "", grade: "" });
-    toast.show("班级添加成功");
-  };
+  useEffect(() => {
+    if (selClass) fetchStudents(selClass);
+  }, [selClass]);
 
-  const handleDeleteClass = async (id) => {
-    saveClasses(classes.filter(c => c.id !== id));
-    saveStudents(students.filter(s => s.class_id !== id));
-    toast.show("班级已删除");
-  };
+  async function fetchStudents(cid) {
+    const { data } = await supabase.from("students").select("*").eq("class_id", cid).order("student_no");
+    setStudents(data || []);
+  }
 
-  const handleAddStudent = () => {
-    if (!studentForm.class_id || !studentForm.student_no.trim() || !studentForm.full_name.trim()) {
-      toast.show("请填写完整信息", "error"); return;
-    }
-    const ns = { id: uuid(), ...studentForm, is_active: true, created_at: now() };
-    const newStudents = [...students, ns];
-    saveStudents(newStudents);
-    // update student_count
-    const updated = classes.map(c => c.id === studentForm.class_id ? { ...c, student_count: newStudents.filter(s => s.class_id === c.id && s.is_active !== false).length } : c);
-    saveClasses(updated);
-    setShowAddStudent(false); setStudentForm({ class_id: "", student_no: "", full_name: "", seat_no: "" });
-    toast.show("学生添加成功");
-  };
+  async function deleteClass(cls) {
+    if (!confirm(`删除班级「${cls.name}」将同时删除该班所有学生和成绩！`)) return;
+    await supabase.from("classes").delete().eq("id", cls.id);
+    showToast("班级已删除", "success");
+    if (selClass === cls.id) setSelClass("");
+    onRefresh();
+  }
 
-  const handleBatchImport = () => {
-    if (!studentForm.class_id) { toast.show("请先选择班级", "error"); return; }
-    const lines = batchText.trim().split("\n").filter(l => l.trim());
-    const newStudents = [];
+  async function deleteStudent(st) {
+    if (!confirm(`确认删除学生「${st.full_name}」？`)) return;
+    await supabase.from("students").delete().eq("id", st.id);
+    showToast("学生已删除", "success");
+    fetchStudents(selClass);
+    onRefresh();
+  }
+
+  async function handleBulkImport() {
+    const lines = bulkText.trim().split("\n").map(l => l.trim()).filter(Boolean);
+    let ok = 0, skip = 0;
     for (const line of lines) {
-      const parts = line.split(/[,\t，]+/).map(p => p.trim());
-      if (parts.length < 2) continue;
-      newStudents.push({ id: uuid(), class_id: studentForm.class_id, student_no: parts[0], full_name: parts[1], seat_no: parts[2] || "", is_active: true, created_at: now() });
+      const parts = line.split(/[\t,，\s]+/).filter(Boolean);
+      if (parts.length < 2) { skip++; continue; }
+      const [student_no, full_name, seat_no] = parts;
+      const { error } = await supabase.from("students").upsert(
+        { class_id: selClass, student_no, full_name, seat_no: seat_no || null, is_active: true },
+        { onConflict: "class_id,student_no" }
+      );
+      if (error) skip++; else ok++;
     }
-    if (newStudents.length === 0) { toast.show("无有效数据", "error"); return; }
-    const all = [...students, ...newStudents];
-    saveStudents(all);
-    const updated = classes.map(c => c.id === studentForm.class_id ? { ...c, student_count: all.filter(s => s.class_id === c.id && s.is_active !== false).length } : c);
-    saveClasses(updated);
-    setBatchText(""); setShowBatch(false);
-    toast.show(`成功导入 ${newStudents.length} 名学生`);
-  };
-
-  const handleDeleteStudent = async (sid) => {
-    const s = students.find(st => st.id === sid);
-    const newStudents = students.filter(st => st.id !== sid);
-    saveStudents(newStudents);
-    if (s) {
-      const updated = classes.map(c => c.id === s.class_id ? { ...c, student_count: newStudents.filter(st => st.class_id === c.id && st.is_active !== false).length } : c);
-      saveClasses(updated);
-    }
-    toast.show("学生已删除");
-  };
-
-  const displayStudents = students.filter(s => !filterClass || s.class_id === filterClass);
+    // 更新 student_count
+    const { data: cnt } = await supabase.from("students").select("id", { count: "exact" }).eq("class_id", selClass).eq("is_active", true);
+    await supabase.from("classes").update({ student_count: cnt?.length || 0 }).eq("id", selClass);
+    showToast(`导入完成：成功${ok}人，跳过${skip}行`, ok > 0 ? "success" : "error");
+    setShowBulk(false);
+    setBulkText("");
+    fetchStudents(selClass);
+    onRefresh();
+  }
 
   return (
     <div>
       <div className="tabs">
-        <div className={`tab ${tab === "classes" ? "active" : ""}`} onClick={() => setTab("classes")}>班级管理</div>
-        <div className={`tab ${tab === "students" ? "active" : ""}`} onClick={() => setTab("students")}>学生管理</div>
+        <div className={`tab ${tab === "class" ? "active" : ""}`} onClick={() => setTab("class")}>🏫 班级管理</div>
+        <div className={`tab ${tab === "student" ? "active" : ""}`} onClick={() => setTab("student")}>👥 学生管理</div>
       </div>
 
-      {tab === "classes" && (
+      {tab === "class" && (
         <div>
           <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
             <button className="btn btn-primary" onClick={() => setShowAddClass(true)}>＋ 添加班级</button>
@@ -1016,12 +916,12 @@ function DataManager({ data, toast }) {
               <table>
                 <thead><tr><th>班级名称</th><th>年级</th><th>学生人数</th><th>操作</th></tr></thead>
                 <tbody>
-                  {classes.map(c => (
-                    <tr key={c.id}>
-                      <td style={{ fontWeight: 600 }}>{c.name}</td>
-                      <td>{c.grade}</td>
-                      <td>{c.student_count}</td>
-                      <td><button className="btn btn-ghost btn-sm" style={{ color: "#e02424" }} onClick={() => handleDeleteClass(c.id)}>删除</button></td>
+                  {classes.map(cls => (
+                    <tr key={cls.id}>
+                      <td style={{ fontWeight: 500 }}>{cls.name}</td>
+                      <td>{cls.grade || "—"}</td>
+                      <td>{cls.student_count}</td>
+                      <td><button className="btn btn-danger btn-sm" onClick={() => deleteClass(cls)}>删除</button></td>
                     </tr>
                   ))}
                   {classes.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", color: "#9ca3af", padding: 32 }}>暂无班级</td></tr>}
@@ -1029,153 +929,229 @@ function DataManager({ data, toast }) {
               </table>
             </div>
           </div>
+
+          {showAddClass && <AddClassModal onClose={() => setShowAddClass(false)} onSave={async () => { setShowAddClass(false); onRefresh(); }} showToast={showToast} />}
         </div>
       )}
 
-      {tab === "students" && (
+      {tab === "student" && (
         <div>
-          <div style={{ display: "flex", gap: 10, justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap" }}>
-            <select className="form-select" style={{ maxWidth: 200 }} value={filterClass} onChange={e => setFilterClass(e.target.value)}>
-              <option value="">所有班级</option>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <select className="form-select" style={{ width: 180 }} value={selClass} onChange={e => setSelClass(e.target.value)}>
+              <option value="">— 选择班级 —</option>
               {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn-outline" onClick={() => { setShowBatch(true); }}>📋 批量导入</button>
-              <button className="btn btn-primary" onClick={() => setShowAddStudent(true)}>＋ 添加学生</button>
-            </div>
+            {selClass && (
+              <>
+                <button className="btn btn-primary" onClick={() => setShowAddStudent(true)}>＋ 添加学生</button>
+                <button className="btn btn-outline" onClick={() => setShowBulk(true)}>📋 批量导入</button>
+              </>
+            )}
           </div>
-          <div className="card">
-            <div className="table-wrap">
-              <table>
-                <thead><tr><th>学号</th><th>姓名</th><th>班级</th><th>座位号</th><th>操作</th></tr></thead>
-                <tbody>
-                  {displayStudents.map(s => {
-                    const cls = classes.find(c => c.id === s.class_id);
-                    return (
-                      <tr key={s.id}>
-                        <td>{s.student_no}</td>
-                        <td style={{ fontWeight: 500 }}>{s.full_name}</td>
-                        <td><span className="badge badge-blue">{cls?.name}</span></td>
-                        <td>{s.seat_no || "—"}</td>
-                        <td><button className="btn btn-ghost btn-sm" style={{ color: "#e02424" }} onClick={() => handleDeleteStudent(s.id)}>删除</button></td>
+
+          {selClass ? (
+            <div className="card">
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>学号</th><th>姓名</th><th>座位号</th><th>状态</th><th>操作</th></tr></thead>
+                  <tbody>
+                    {students.map(st => (
+                      <tr key={st.id}>
+                        <td>{st.student_no}</td>
+                        <td style={{ fontWeight: 500 }}>{st.full_name}</td>
+                        <td>{st.seat_no || "—"}</td>
+                        <td>{st.is_active ? <span className="badge badge-green">在读</span> : <span className="badge badge-gray">已离校</span>}</td>
+                        <td><button className="btn btn-danger btn-sm" onClick={() => deleteStudent(st)}>删除</button></td>
                       </tr>
-                    );
-                  })}
-                  {displayStudents.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#9ca3af", padding: 32 }}>暂无学生</td></tr>}
-                </tbody>
-              </table>
+                    ))}
+                    {students.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", color: "#9ca3af", padding: 32 }}>暂无学生，请批量导入</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          ) : <div className="card"><div className="empty"><p>请先选择班级</p></div></div>}
+
+          {showAddStudent && selClass && (
+            <AddStudentModal classId={selClass} onClose={() => setShowAddStudent(false)} onSave={async () => { setShowAddStudent(false); fetchStudents(selClass); onRefresh(); }} showToast={showToast} />
+          )}
+
+          {showBulk && (
+            <Modal title="批量导入学生" onClose={() => setShowBulk(false)}>
+              <div className="modal-body">
+                <div className="alert alert-info">每行一个学生，格式：<b>学号 姓名 座位号(可选)</b>，支持空格、逗号、Tab分隔。重复学号自动覆盖。</div>
+                <div className="form-group">
+                  <textarea className="form-textarea" style={{ minHeight: 200, fontFamily: "monospace" }} value={bulkText} onChange={e => setBulkText(e.target.value)} placeholder={"2024001 张三 A01\n2024002 李四\n2024003,王五,B03"} />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-outline" onClick={() => setShowBulk(false)}>取消</button>
+                <button className="btn btn-primary" onClick={handleBulkImport}>开始导入</button>
+              </div>
+            </Modal>
+          )}
         </div>
-      )}
-
-      {showAddClass && (
-        <Modal title="添加班级" onClose={() => setShowAddClass(false)}
-          footer={<><button className="btn btn-outline" onClick={() => setShowAddClass(false)}>取消</button><button className="btn btn-primary" onClick={handleAddClass}>添加</button></>}>
-          <div className="form-group">
-            <label className="form-label">班级名称 *</label>
-            <input className="form-input" placeholder="例：电商2301班" value={classForm.name} onChange={e => setClassForm({ ...classForm, name: e.target.value })} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">年级</label>
-            <input className="form-input" placeholder="例：2023级" value={classForm.grade} onChange={e => setClassForm({ ...classForm, grade: e.target.value })} />
-          </div>
-        </Modal>
-      )}
-
-      {showAddStudent && (
-        <Modal title="添加学生" onClose={() => setShowAddStudent(false)}
-          footer={<><button className="btn btn-outline" onClick={() => setShowAddStudent(false)}>取消</button><button className="btn btn-primary" onClick={handleAddStudent}>添加</button></>}>
-          <div className="form-group">
-            <label className="form-label">班级 *</label>
-            <select className="form-select" value={studentForm.class_id} onChange={e => setStudentForm({ ...studentForm, class_id: e.target.value })}>
-              <option value="">请选择</option>
-              {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">学号 *</label>
-            <input className="form-input" placeholder="例：2301001" value={studentForm.student_no} onChange={e => setStudentForm({ ...studentForm, student_no: e.target.value })} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">姓名 *</label>
-            <input className="form-input" placeholder="例：张小明" value={studentForm.full_name} onChange={e => setStudentForm({ ...studentForm, full_name: e.target.value })} />
-          </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">座位号（选填）</label>
-            <input className="form-input" placeholder="例：A3" value={studentForm.seat_no} onChange={e => setStudentForm({ ...studentForm, seat_no: e.target.value })} />
-          </div>
-        </Modal>
-      )}
-
-      {showBatch && (
-        <Modal title="批量导入学生" onClose={() => setShowBatch(false)}
-          footer={<><button className="btn btn-outline" onClick={() => setShowBatch(false)}>取消</button><button className="btn btn-primary" onClick={handleBatchImport}>导入</button></>}>
-          <div className="form-group">
-            <label className="form-label">选择班级 *</label>
-            <select className="form-select" value={studentForm.class_id} onChange={e => setStudentForm({ ...studentForm, class_id: e.target.value })}>
-              <option value="">请选择</option>
-              {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">粘贴学生数据</label>
-            <textarea className="form-textarea" style={{ minHeight: 160, fontFamily: "monospace", fontSize: 13 }}
-              placeholder={"每行一名学生，格式：学号,姓名,座位号（座位号可选）\n示例：\n2301001,张小明,A1\n2301002,李小红,A2\n2301003,王小华"}
-              value={batchText} onChange={e => setBatchText(e.target.value)} />
-            <p className="form-hint">支持逗号、制表符分隔（可直接从Excel粘贴）</p>
-          </div>
-        </Modal>
       )}
     </div>
   );
 }
 
 // ============================================================
-// 系数配置
+// 添加班级弹窗
 // ============================================================
-function Settings({ data, toast }) {
-  const [tiers, setTiers] = useState(DEFAULT_TIERS);
+function AddClassModal({ onClose, onSave, showToast }) {
+  const [name, setName] = useState("");
+  const [grade, setGrade] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!name.trim()) { showToast("请填写班级名称", "error"); return; }
+    setSaving(true);
+    const { error } = await supabase.from("classes").insert({ name: name.trim(), grade: grade.trim() || null, student_count: 0 });
+    if (error) { showToast("保存失败：" + error.message, "error"); setSaving(false); return; }
+    showToast("班级添加成功", "success");
+    onSave();
+  }
+
+  return (
+    <Modal title="添加班级" onClose={onClose}>
+      <div className="modal-body">
+        <div className="form-group">
+          <label className="form-label">班级名称 *</label>
+          <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="如：2024电商1班" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">年级</label>
+          <input className="form-input" value={grade} onChange={e => setGrade(e.target.value)} placeholder="如：2024级" />
+        </div>
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-outline" onClick={onClose}>取消</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? "保存中..." : "添加"}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ============================================================
+// 添加单个学生
+// ============================================================
+function AddStudentModal({ classId, onClose, onSave, showToast }) {
+  const [no, setNo] = useState("");
+  const [name, setName] = useState("");
+  const [seat, setSeat] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!no.trim() || !name.trim()) { showToast("请填写学号和姓名", "error"); return; }
+    setSaving(true);
+    const { error } = await supabase.from("students").upsert(
+      { class_id: classId, student_no: no.trim(), full_name: name.trim(), seat_no: seat.trim() || null, is_active: true },
+      { onConflict: "class_id,student_no" }
+    );
+    if (error) { showToast("保存失败：" + error.message, "error"); setSaving(false); return; }
+    // 更新 student_count
+    const { data: cnt } = await supabase.from("students").select("id", { count: "exact" }).eq("class_id", classId).eq("is_active", true);
+    await supabase.from("classes").update({ student_count: cnt?.length || 0 }).eq("id", classId);
+    showToast("学生添加成功", "success");
+    onSave();
+  }
+
+  return (
+    <Modal title="添加学生" onClose={onClose}>
+      <div className="modal-body">
+        <div className="form-group">
+          <label className="form-label">学号 *</label>
+          <input className="form-input" value={no} onChange={e => setNo(e.target.value)} placeholder="如：2024001" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">姓名 *</label>
+          <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="如：张三" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">座位号</label>
+          <input className="form-input" value={seat} onChange={e => setSeat(e.target.value)} placeholder="如：A01（可选）" />
+        </div>
+      </div>
+      <div className="modal-footer">
+        <button className="btn btn-outline" onClick={onClose}>取消</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? "保存中..." : "添加"}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ============================================================
+// 系数设置
+// ============================================================
+function SettingsPage({ showToast }) {
+  const [tiers, setTiers] = useState(JSON.parse(JSON.stringify(DEFAULT_TIERS)));
+
+  const setupSQL = `-- 在 Supabase SQL Editor 执行（一次性）
+create table if not exists classes (
+  id uuid primary key default gen_random_uuid(),
+  name text not null, grade text,
+  student_count int default 0,
+  created_at timestamptz default now()
+);
+create table if not exists students (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references classes(id) on delete cascade,
+  student_no text not null, full_name text not null,
+  seat_no text, is_active boolean default true,
+  created_at timestamptz default now(),
+  unique(class_id, student_no)
+);
+create table if not exists tasks (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references classes(id) on delete cascade,
+  title text not null, description text,
+  base_score_options jsonb default '[100,90,80,70,60]',
+  coefficient_config jsonb,
+  is_finished boolean default false,
+  created_at timestamptz default now()
+);
+create table if not exists scores (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references tasks(id) on delete cascade,
+  student_id uuid not null references students(id) on delete cascade,
+  class_id uuid not null references classes(id) on delete cascade,
+  base_score numeric(5,1), rank_no int,
+  coefficient numeric(4,3), final_score numeric(5,1),
+  is_manual_coef boolean default false,
+  is_leave boolean default false,
+  is_absent boolean default false,
+  remark text, scored_at timestamptz default now(),
+  unique(task_id, student_id)
+);
+-- RLS 开放策略（单教师场景）
+alter table classes enable row level security;
+alter table students enable row level security;
+alter table tasks enable row level security;
+alter table scores enable row level security;
+create policy "allow_all" on classes for all using (true) with check (true);
+create policy "allow_all" on students for all using (true) with check (true);
+create policy "allow_all" on tasks for all using (true) with check (true);
+create policy "allow_all" on scores for all using (true) with check (true);`;
 
   return (
     <div>
-      <div className="card" style={{ maxWidth: 560 }}>
-        <div className="card-header"><span className="card-title">⚙️ 全局系数档位配置</span></div>
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="card-header"><span className="card-title">⚙ 全局默认系数档位</span></div>
         <div className="card-body">
-          <div className="alert alert-info" style={{ marginBottom: 16 }}>
-            新发布的任务将使用以下默认档位配置，也可在任务层单独覆盖。
-          </div>
-          <table style={{ width: "100%" }}>
-            <thead>
-              <tr>
-                <th>档位名称</th><th>完成百分位上限（%）</th><th>系数</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tiers.map((t, i) => (
-                <tr key={i}>
-                  <td><input className="form-input" value={t.label} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], label: e.target.value }; setTiers(n); }} /></td>
-                  <td><input className="form-input" type="number" min="1" max="100" value={t.max_percentile} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], max_percentile: +e.target.value }; setTiers(n); }} /></td>
-                  <td><input className="form-input" type="number" min="0" max="1" step="0.01" value={t.coef} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], coef: +e.target.value }; setTiers(n); }} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{ marginTop: 16 }}>
-            <button className="btn btn-primary" onClick={() => toast.show("配置已保存（演示版，刷新后恢复）")}>保存配置</button>
+          <div className="alert alert-info" style={{ marginBottom: 16 }}>此处设置的是发布任务时的默认档位，每个任务发布后可单独修改。</div>
+          <TierEditor tiers={tiers} onChange={setTiers} />
+          <div style={{ marginTop: 12 }}>
+            <button className="btn btn-primary" onClick={() => showToast("已记录（刷新页面前有效）", "info")}>保存默认配置</button>
           </div>
         </div>
       </div>
 
-      <div className="card" style={{ maxWidth: 560, marginTop: 20 }}>
-        <div className="card-header"><span className="card-title">📖 使用说明</span></div>
-        <div className="card-body" style={{ fontSize: 13, lineHeight: 2, color: "#374151" }}>
-          <p><strong>评分公式：</strong>最终分 = 基础分 × 顺序系数（封顶100分）</p>
-          <p><strong>系数计算：</strong>以班级总人数为分母，按登记顺序划分档位</p>
-          <p><strong>请假：</strong>直接记60分，不占用排名位置，系数不参与计算</p>
-          <p><strong>未提交：</strong>任务结束后，未登记的学生自动记0分</p>
-          <p><strong>补录：</strong>可随时修改成绩，系数按修改时的顺序重新计算</p>
-          <p><strong>导出：</strong>成绩查询页支持导出CSV，可用Excel打开</p>
+      <div className="card">
+        <div className="card-header"><span className="card-title">🗄 数据库建表 SQL</span></div>
+        <div className="card-body">
+          <p style={{ fontSize: 13, color: "#6b7280", marginBottom: 12 }}>如尚未建表，请复制以下 SQL 到 Supabase → SQL Editor → 执行：</p>
+          <pre style={{ background: "#1e293b", color: "#e2e8f0", borderRadius: 8, padding: 16, fontSize: 12, overflowX: "auto", whiteSpace: "pre-wrap" }}>{setupSQL}</pre>
+          <button className="btn btn-outline" style={{ marginTop: 12 }} onClick={() => { navigator.clipboard.writeText(setupSQL); showToast("SQL 已复制到剪贴板", "success"); }}>📋 复制 SQL</button>
         </div>
       </div>
     </div>
@@ -1185,86 +1161,155 @@ function Settings({ data, toast }) {
 // ============================================================
 // 主应用
 // ============================================================
-const PAGES = [
-  { id: "dashboard", label: "仪表盘", icon: "🏠", section: "概览" },
-  { id: "scoring", label: "⭐ 打分登记", icon: "✏️", section: "教学" },
-  { id: "tasks", label: "任务管理", icon: "📋", section: "教学" },
-  { id: "scores", label: "成绩查询", icon: "📊", section: "教学" },
-  { id: "data", label: "数据管理", icon: "👥", section: "管理" },
-  { id: "settings", label: "系数设置", icon: "⚙️", section: "管理" },
-];
-
-const PAGE_TITLES = {
-  dashboard: { title: "仪表盘", sub: "实训课堂任务管理系统" },
-  scoring: { title: "⭐ 打分登记", sub: "选择任务，逐个为学生登记成绩" },
-  tasks: { title: "任务管理", sub: "发布、查看、结束课堂实训任务" },
-  scores: { title: "成绩查询", sub: "查看详细成绩，支持导出CSV" },
-  data: { title: "数据管理", sub: "管理班级和学生信息" },
-  settings: { title: "系数设置", sub: "配置顺序系数档位" },
-};
-
 export default function App() {
   const [page, setPage] = useState("dashboard");
-  const data = useData();
-  const toast = useToast();
+  const [classes, setClasses] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [scores, setScores] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [dbError, setDbError] = useState(false);
+  const { toasts, show: showToast } = useToast();
 
-  if (!data.loaded) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", flexDirection: "column", gap: 16 }}>
-        <div style={{ fontSize: 32 }}>📚</div>
-        <div style={{ fontSize: 14, color: "#6b7280" }}>正在加载数据...</div>
-      </div>
-    );
+  const fetchAll = useCallback(async () => {
+    try {
+      const [{ data: cls, error: e1 }, { data: tsk, error: e2 }, { data: sc, error: e3 }] = await Promise.all([
+        supabase.from("classes").select("*").order("created_at"),
+        supabase.from("tasks").select("*").order("created_at", { ascending: false }),
+        supabase.from("scores").select("*"),
+      ]);
+      if (e1 || e2 || e3) {
+        setDbError(true);
+        setLoading(false);
+        return;
+      }
+      setClasses(cls || []);
+      setTasks(tsk || []);
+      setScores(sc || []);
+      setDbError(false);
+    } catch {
+      setDbError(true);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  async function handleScoreUpdate(task, student, { baseScore, isLeave, manualCoef, rankNo }) {
+    const existing = scores.find(s => s.task_id === task.id && s.student_id === student.id);
+    const tiers = task.coefficient_config || DEFAULT_TIERS;
+
+    let coef, finalScore;
+    if (isLeave) {
+      coef = null; finalScore = 60;
+    } else {
+      if (manualCoef !== undefined) {
+        coef = manualCoef;
+      } else {
+        // 实际排名：排除请假的
+        const realRank = existing
+          ? existing.rank_no
+          : scores.filter(s => s.task_id === task.id && !s.is_leave).length + 1;
+        const cls = classes.find(c => c.id === task.class_id);
+        coef = calcCoefficient(realRank, cls?.student_count || 1, tiers).coef;
+      }
+      finalScore = calcFinalScore(baseScore, coef);
+    }
+
+    const payload = {
+      task_id: task.id, student_id: student.id, class_id: task.class_id,
+      base_score: baseScore, rank_no: isLeave ? null : rankNo,
+      coefficient: coef, final_score: finalScore,
+      is_manual_coef: manualCoef !== undefined,
+      is_leave: isLeave, is_absent: false,
+      scored_at: new Date().toISOString(),
+    };
+
+    if (existing) {
+      await supabase.from("scores").update(payload).eq("id", existing.id);
+      showToast("成绩已更新", "success");
+    } else {
+      await supabase.from("scores").insert(payload);
+      showToast("成绩登记成功", "success");
+    }
+    fetchAll();
   }
 
-  const sections = [...new Set(PAGES.map(p => p.section))];
-  const { title, sub } = PAGE_TITLES[page];
+  if (loading) return (
+    <div className="loading-screen">
+      <div className="spinner" />
+      <p style={{ color: "#6b7280" }}>连接数据库中...</p>
+    </div>
+  );
+
+  if (dbError) return (
+    <div className="setup-screen">
+      <div className="setup-card">
+        <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>⚠ 数据库未就绪</h2>
+        <p style={{ color: "#6b7280", marginBottom: 16 }}>无法连接到数据库或表尚未创建。请前往 <b>Supabase → SQL Editor</b> 执行建表语句。</p>
+        <p style={{ color: "#6b7280", fontSize: 13 }}>建表 SQL 可在「系数设置」页面查看和复制。</p>
+        <button className="btn btn-primary" style={{ marginTop: 20 }} onClick={() => { setLoading(true); fetchAll(); }}>重试连接</button>
+      </div>
+    </div>
+  );
+
+  const navItems = [
+    { section: "概览", items: [{ id: "dashboard", label: "仪表盘", icon: "🏠" }] },
+    { section: "教学", items: [
+      { id: "score", label: "✏️⭐ 打分登记", icon: "✏" },
+      { id: "tasks", label: "任务管理", icon: "📋" },
+      { id: "query", label: "成绩查询", icon: "📊" },
+    ]},
+    { section: "管理", items: [
+      { id: "data", label: "数据管理", icon: "👥" },
+      { id: "settings", label: "系数设置", icon: "⚙" },
+    ]},
+  ];
+
+  const pageTitle = {
+    dashboard: "仪表盘", score: "打分登记", tasks: "任务管理",
+    query: "成绩查询", data: "数据管理", settings: "系数设置",
+  }[page];
 
   return (
-    <>
-      
-      <div className="app">
-        {/* Sidebar */}
-        <div className="sidebar">
-          <div className="sidebar-logo">
-            <h1>📚 实训管理</h1>
-            <p>中职电商 · 课堂任务系统</p>
-          </div>
-          <div className="sidebar-nav">
-            {sections.map(sec => (
-              <div key={sec}>
-                <div className="nav-section">{sec}</div>
-                {PAGES.filter(p => p.section === sec).map(p => (
-                  <div key={p.id} className={`nav-item ${page === p.id ? "active" : ""}`} onClick={() => setPage(p.id)}>
-                    <span className="icon">{p.icon}</span>
-                    <span>{p.label}</span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
+    <div className="app">
+      <aside className="sidebar">
+        <div className="sidebar-logo">
+          <h1>📚 实训管理</h1>
+          <p>中职电商 · 课堂任务系统</p>
         </div>
-
-        {/* Main */}
-        <div className="main">
-          <div className="topbar">
-            <div>
-              <div className="topbar-h2" style={{ fontWeight: 600, fontSize: 16 }}>{title}</div>
-              <div className="topbar-sub">{sub}</div>
+        <nav className="sidebar-nav">
+          {navItems.map(sec => (
+            <div key={sec.section}>
+              <div className="nav-section">{sec.section}</div>
+              {sec.items.map(item => (
+                <div key={item.id} className={`nav-item ${page === item.id ? "active" : ""}`} onClick={() => setPage(item.id)}>
+                  <span className="icon">{item.icon}</span>
+                  <span>{item.label}</span>
+                </div>
+              ))}
             </div>
-          </div>
-          <div className="content">
-            {page === "dashboard" && <Dashboard data={data} />}
-            {page === "scoring" && <ScoringPage data={data} toast={toast} />}
-            {page === "tasks" && <TaskManager data={data} toast={toast} />}
-            {page === "scores" && <ScoreView data={data} toast={toast} />}
-            {page === "data" && <DataManager data={data} toast={toast} />}
-            {page === "settings" && <Settings data={data} toast={toast} />}
+          ))}
+        </nav>
+      </aside>
+
+      <main className="main">
+        <div className="topbar">
+          <h2 style={{ fontSize: 16, fontWeight: 600 }}>{pageTitle}</h2>
+          <div style={{ fontSize: 12, color: "#9ca3af" }}>
+            {classes.length}个班级 · {tasks.filter(t => !t.is_finished).length}个进行中任务
           </div>
         </div>
-      </div>
+        <div className="content">
+          {page === "dashboard" && <Dashboard classes={classes} tasks={tasks} scores={scores} onNav={setPage} />}
+          {page === "score" && <ScorePage classes={classes} tasks={tasks} scores={scores} onScoreUpdate={handleScoreUpdate} showToast={showToast} />}
+          {page === "tasks" && <TaskPage classes={classes} tasks={tasks} scores={scores} onRefresh={fetchAll} showToast={showToast} />}
+          {page === "query" && <ScoreQueryPage classes={classes} tasks={tasks} scores={scores} showToast={showToast} />}
+          {page === "data" && <DataPage classes={classes} onRefresh={fetchAll} showToast={showToast} />}
+          {page === "settings" && <SettingsPage showToast={showToast} />}
+        </div>
+      </main>
 
-      <ToastContainer toasts={toast.toasts} />
-    </>
+      <ToastContainer toasts={toasts} />
+    </div>
   );
 }
