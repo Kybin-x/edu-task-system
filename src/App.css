@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
 * { box-sizing: border-box; margin: 0; padding: 0; }
+body { -webkit-tap-highlight-color: transparent; }
 body, #root { font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 14px; color: #111827; background: #f0f4ff; min-height: 100vh; }
 .app { display: flex; min-height: 100vh; }
 .sidebar { width: 220px; min-width: 220px; background: #1e293b; color: #cbd5e1; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow: hidden; }
@@ -121,12 +122,130 @@ tr:hover td { background: #fafafa; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
-@media (max-width: 640px) {
-  .sidebar { width: 56px; min-width: 56px; }
-  .sidebar-logo, .nav-section { display: none; }
-  .nav-item span { display: none; }
-  .nav-item { justify-content: center; padding: 14px; }
+/* ═══════════════════════════════════════
+   手机端适配（≤768px）：底部 Tabbar 布局
+   ═══════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* 整体布局：垂直方向 */
+  .app { flex-direction: column; }
+
+  /* 侧边栏隐藏，改用底部 tabbar */
+  .sidebar { display: none; }
+
+  /* 主内容区撑满，底部留出 tabbar 高度 */
+  .main { flex: 1; padding-bottom: 64px; }
+
+  /* Topbar 精简 */
+  .topbar { padding: 10px 14px; }
+  .topbar-stats { display: none; }
+  .topbar-divider { display: none; }
+
+  /* 内容区 */
   .content { padding: 12px; }
+
+  /* 网格：统一单列 */
+  .grid-4, .grid-2, .grid-3 { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid-single { grid-template-columns: 1fr !important; }
+
+  /* stat-card 精简 */
+  .stat-card { padding: 12px 14px; }
+  .stat-value { font-size: 22px; }
+
+  /* 表格：横向可滚动，字体小一点 */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { min-width: 480px; }
+  th, td { padding: 8px 10px; font-size: 12px; }
+
+  /* 卡片 */
+  .card-header { padding: 12px 14px; flex-wrap: wrap; gap: 8px; }
+  .card-body { padding: 14px; }
+  .card-title { font-size: 13px; }
+
+  /* 弹窗全屏化 */
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal, .modal-lg {
+    max-width: 100%;
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 20px 20px 0 0;
+  }
+  .modal-body { padding: 16px; }
+  .modal-footer { padding: 12px 16px; }
+
+  /* 打分宫格：手机上更小 */
+  .student-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+  .student-card { padding: 10px 8px; }
+  .student-card .sname { font-size: 13px; }
+  .student-card .sscore { font-size: 16px; }
+
+  /* 基础分按钮 */
+  .score-options { gap: 8px; }
+  .score-opt { padding: 8px 14px; font-size: 16px; }
+
+  /* tabs */
+  .tabs { overflow-x: auto; white-space: nowrap; }
+  .tab { padding: 8px 14px; font-size: 12px; }
+
+  /* alert */
+  .alert { font-size: 12px; padding: 10px 12px; }
+
+  /* 按钮组 */
+  .btn { font-size: 12px; }
+  .btn-sm { padding: 4px 8px; font-size: 11px; }
+
+  /* 系数表格 */
+  .coef-table { font-size: 12px; }
+  .coef-table th, .coef-table td { padding: 5px 6px; }
+
+  /* Toast 位置 */
+  .toast-container { bottom: 76px; right: 12px; left: 12px; }
+  .toast { max-width: 100%; }
+
+  /* 底部 Tabbar */
+  .mobile-tabbar {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 64px;
+    background: white;
+    border-top: 1px solid #e5e7eb;
+    z-index: 50;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+    padding: 0 4px;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .mobile-tab-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    cursor: pointer;
+    border-radius: 10px;
+    margin: 6px 2px;
+    transition: background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  .mobile-tab-item:active { background: #f3f4f6; }
+  .mobile-tab-item.active { background: #eff6ff; }
+  .mobile-tab-icon { font-size: 20px; line-height: 1; }
+  .mobile-tab-label { font-size: 10px; color: #6b7280; font-weight: 500; }
+  .mobile-tab-item.active .mobile-tab-label { color: #1a56db; font-weight: 600; }
+
+  /* 桌面端 tabbar 隐藏 */
+}
+
+/* 桌面端：tabbar 隐藏 */
+@media (min-width: 769px) {
+  .mobile-tabbar { display: none; }
+}
+
+/* 极小屏 */
+@media (max-width: 360px) {
+  .student-grid { grid-template-columns: repeat(3, 1fr); }
   .grid-4 { grid-template-columns: 1fr 1fr; }
-  .grid-2 { grid-template-columns: 1fr; }
+  .mobile-tab-label { font-size: 9px; }
+  .mobile-tab-icon { font-size: 18px; }
 }

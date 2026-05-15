@@ -680,13 +680,25 @@ function ScoreModal({ student, task, existingScore, allScores, classTotal, onClo
           本次请假（固定60分，不占排名）
         </label>
 
-        <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 8, padding: 16 }}>
-          <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>预览</div>
-          <div style={{ display: "flex", gap: 20 }}>
-            <div><div style={{ fontSize: 11, color: "#9ca3af" }}>排名序号</div><div style={{ fontSize: 18, fontWeight: 700 }}>第{currentRank}个</div></div>
-            <div><div style={{ fontSize: 11, color: "#9ca3af" }}>档位</div><div style={{ fontSize: 13, fontWeight: 600, color: "#6d28d9" }}>{previewLabel}</div></div>
-            <div><div style={{ fontSize: 11, color: "#9ca3af" }}>系数</div><div style={{ fontSize: 18, fontWeight: 700 }}>×{isLeave ? "—" : (previewCoef?.toFixed(2) || "—")}</div></div>
-            <div><div style={{ fontSize: 11, color: "#9ca3af" }}>最终分</div><div style={{ fontSize: 24, fontWeight: 700, color: "#057a55" }}>{previewFinal ?? "—"}</div></div>
+        <div style={{ background: "#f0fdf4", border: "1px solid #a7f3d0", borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 12, color: "#065f46", marginBottom: 10, fontWeight: 600 }}>📊 计算预览</div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ background: "white", borderRadius: 8, padding: "8px 14px", textAlign: "center", minWidth: 60 }}>
+              <div style={{ fontSize: 10, color: "#9ca3af" }}>第几名</div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{currentRank}</div>
+            </div>
+            <div style={{ background: "white", borderRadius: 8, padding: "8px 14px", textAlign: "center", minWidth: 60 }}>
+              <div style={{ fontSize: 10, color: "#9ca3af" }}>档位</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#6d28d9" }}>{previewLabel}</div>
+            </div>
+            <div style={{ background: "white", borderRadius: 8, padding: "8px 14px", textAlign: "center", minWidth: 60 }}>
+              <div style={{ fontSize: 10, color: "#9ca3af" }}>系数</div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>×{isLeave ? "—" : (previewCoef?.toFixed(2) || "—")}</div>
+            </div>
+            <div style={{ background: "#057a55", borderRadius: 8, padding: "8px 14px", textAlign: "center", minWidth: 70, flex: 1 }}>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)" }}>最终分</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: "white" }}>{previewFinal ?? "—"}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -760,9 +772,9 @@ function TaskPage({ classes, tasks, scores, onRefresh, showToast }) {
 
         return (
           <div className="card" key={task.id} style={{ marginBottom: 12 }}>
-            <div className="card-header">
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div className="card-header" style={{ flexWrap: "wrap", gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span className="card-title">{task.title}</span>
                   {task.is_finished
                     ? <span className="badge badge-gray">已结束</span>
@@ -774,11 +786,11 @@ function TaskPage({ classes, tasks, scores, onRefresh, showToast }) {
                   {task.description && ` · ${task.description}`}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
                 <button className="btn btn-outline btn-sm" onClick={() => setEditingTiers(task)}>⚙ 系数</button>
                 {!task.is_finished
-                  ? <button className="btn btn-outline btn-sm" onClick={() => handleFinish(task)}>🔒 结束登记</button>
-                  : <button className="btn btn-outline btn-sm" onClick={() => handleReopen(task)}>🔓 重新开放</button>
+                  ? <button className="btn btn-outline btn-sm" onClick={() => handleFinish(task)}>🔒 结束</button>
+                  : <button className="btn btn-outline btn-sm" onClick={() => handleReopen(task)}>🔓 补录</button>
                 }
                 <button className="btn btn-danger btn-sm" onClick={() => setDelTask(task)}>删除</button>
               </div>
@@ -967,18 +979,18 @@ function ScoreQueryPage({ classes, tasks, scores, showToast }) {
     <div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-body">
-          <div className="grid-2">
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label className="form-label">选择班级</label>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 130 }}>
+              <label className="form-label">班级</label>
               <select className="form-select" value={selClass} onChange={e => { setSelClass(e.target.value); setSelTask("all"); }}>
                 <option value="">— 选择班级 —</option>
                 {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div className="form-group" style={{ marginBottom: 0 }}>
+            <div style={{ flex: 2, minWidth: 160 }}>
               <label className="form-label">查看范围</label>
               <select className="form-select" value={selTask} onChange={e => setSelTask(e.target.value)} disabled={!selClass}>
-                <option value="all">📊 全班汇总（所有任务）</option>
+                <option value="all">📊 全班汇总</option>
                 {classTasks.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
               </select>
             </div>
@@ -988,9 +1000,9 @@ function ScoreQueryPage({ classes, tasks, scores, showToast }) {
 
       {selClass && (
         <>
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
-            <button className="btn btn-success btn-sm" onClick={exportAll}>⬇ 导出全班汇总CSV</button>
-            {selTask !== "all" && <button className="btn btn-outline btn-sm" onClick={exportSingle}>⬇ 导出当前任务CSV</button>}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <button className="btn btn-success btn-sm" onClick={exportAll}>⬇ 全班汇总</button>
+            {selTask !== "all" && <button className="btn btn-outline btn-sm" onClick={exportSingle}>⬇ 当前任务</button>}
           </div>
 
           {selTask === "all" ? (
@@ -1187,14 +1199,14 @@ function DataPage({ classes, onRefresh, showToast }) {
       {tab === "student" && (
         <div>
           <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-            <select className="form-select" style={{ width: 180 }} value={selClass} onChange={e => setSelClass(e.target.value)}>
+            <select className="form-select" style={{ flex: 1, minWidth: 120 }} value={selClass} onChange={e => setSelClass(e.target.value)}>
               <option value="">— 选择班级 —</option>
               {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             {selClass && (
               <>
-                <button className="btn btn-primary" onClick={() => setShowAddStudent(true)}>＋ 添加学生</button>
-                <button className="btn btn-outline" onClick={() => setShowBulk(true)}>📋 批量导入</button>
+                <button className="btn btn-primary btn-sm" onClick={() => setShowAddStudent(true)}>＋ 添加</button>
+                <button className="btn btn-outline btn-sm" onClick={() => setShowBulk(true)}>📋 批量</button>
               </>
             )}
           </div>
@@ -1543,6 +1555,15 @@ export default function App() {
     ]},
   ];
 
+  // 手机端底部 tabbar 只放最常用的5项
+  const mobileNavItems = [
+    { id: "dashboard", label: "概览", icon: "🏠" },
+    { id: "score",     label: "打分", icon: "⭐" },
+    { id: "tasks",     label: "任务", icon: "📋" },
+    { id: "query",     label: "成绩", icon: "📊" },
+    { id: "data",      label: "管理", icon: "👥" },
+  ];
+
   const pageTitle = {
     dashboard: "仪表盘", score: "打分登记", tasks: "任务管理",
     query: "成绩查询", data: "数据管理", settings: "系数设置",
@@ -1550,6 +1571,7 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* 桌面端侧边栏 */}
       <aside className="sidebar">
         <div className="sidebar-logo">
           <h1>📚 实训管理</h1>
@@ -1573,16 +1595,16 @@ export default function App() {
       <main className="main">
         <div className="topbar">
           <h2 style={{ fontSize: 16, fontWeight: 600 }}>{pageTitle}</h2>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 12, color: "#9ca3af" }}>
-              {classes.length}个班级 · {tasks.filter(t => !t.is_finished).length}个进行中任务
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="topbar-stats" style={{ fontSize: 12, color: "#9ca3af" }}>
+              {classes.length}个班级 · {tasks.filter(t => !t.is_finished).length}进行中
             </span>
-            <div style={{ width: 1, height: 16, background: "#e5e7eb" }} />
+            <div className="topbar-divider" style={{ width: 1, height: 16, background: "#e5e7eb" }} />
             <span style={{ fontSize: 12, color: "#374151", fontWeight: 500 }}>
               👤 {authUser.username}
             </span>
             <button className="btn btn-outline btn-sm" onClick={() => { setMustChange(false); setShowChangePwd(true); }}>
-              🔑 改密码
+              🔑
             </button>
             <button className="btn btn-ghost btn-sm" style={{ color: "#e02424" }} onClick={handleLogout}>
               退出
@@ -1612,6 +1634,20 @@ export default function App() {
           }}
         />
       )}
+
+      {/* 手机端底部导航栏 */}
+      <nav className="mobile-tabbar">
+        {mobileNavItems.map(item => (
+          <div
+            key={item.id}
+            className={`mobile-tab-item ${page === item.id ? "active" : ""}`}
+            onClick={() => setPage(item.id)}
+          >
+            <span className="mobile-tab-icon">{item.icon}</span>
+            <span className="mobile-tab-label">{item.label}</span>
+          </div>
+        ))}
+      </nav>
     </div>
   );
 }
