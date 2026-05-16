@@ -1630,7 +1630,7 @@ export default function App() {
   const navItems = [
     { section: "概览", items: [{ id: "dashboard", label: "仪表盘", icon: "🏠" }] },
     { section: "教学", items: [
-      { id: "score", label: "✏️⭐ 打分登记", icon: "✏" },
+      { id: "score", label: "打分登记", icon: "⭐" },
       { id: "tasks", label: "任务管理", icon: "📋" },
       { id: "query", label: "成绩查询", icon: "📊" },
     ]},
